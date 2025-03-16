@@ -36,6 +36,7 @@ import {
   RedoOutlined,
   SaveOutlined,
   UploadOutlined,
+  FileOutlined,
 } from '@ant-design/icons';
 import { MindMapData, MindMapNode, MindMapTheme } from '../types/MindMap';
 import { saveToFile, loadFromFile, saveToMarkdown } from '../utils/fileUtils';
@@ -818,6 +819,159 @@ const MindMap: React.FC = () => {
     }, 50);
   }, [nodes, edges, setNodes, reactFlowInstance, layoutDirection, nodeSpacing, rankSpacing]);
 
+  // 获取当前思维导图数据
+  const getMindMapData = (): MindMapData => {
+    // 构建思维导图数据结构
+    const mindMapData: MindMapData = {
+      mindMaps: []
+    };
+    
+    // 创建节点映射，用于构建树形结构
+    const nodeMap = new Map<string, MindMapNode>();
+    
+    // 首先创建所有节点
+    nodes.forEach(node => {
+      if (node.data.nodeData) {
+        nodeMap.set(node.id, {
+          ...node.data.nodeData,
+          children: []
+        });
+      }
+    });
+    
+    // 记录已经有父节点的节点ID
+    const childNodeIds = new Set<string>();
+    
+    // 根据边构建父子关系
+    edges.forEach(edge => {
+      const sourceNode = nodeMap.get(edge.source);
+      const targetNode = nodeMap.get(edge.target);
+      
+      if (sourceNode && targetNode) {
+        // 如果边有标签，将其添加到目标节点
+        if (edge.data?.label) {
+          targetNode.edgeLabel = edge.data.label;
+        }
+        
+        // 将目标节点添加为源节点的子节点
+        if (sourceNode.children) {
+          sourceNode.children.push(targetNode);
+          childNodeIds.add(edge.target);
+        }
+      }
+    });
+    
+    // 找出所有根节点（没有父节点的节点）
+    const rootNodes: MindMapNode[] = [];
+    nodeMap.forEach((node, id) => {
+      if (!childNodeIds.has(id)) {
+        rootNodes.push(node);
+      }
+    });
+    
+    // 创建主题
+    const theme: MindMapTheme = {
+      id: 'theme-' + Date.now(),
+      title: '思维导图',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      children: rootNodes
+    };
+    
+    mindMapData.mindMaps.push(theme);
+    return mindMapData;
+  };
+
+  // 处理保存
+  const handleSave = async () => {
+    try {
+      // 创建当前思维导图数据
+      const currentTheme: MindMapTheme = {
+        id: 'theme-1',
+        title: '思维导图',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        children: [],
+      };
+      
+      // 将节点数据转换为MindMapNode结构
+      const nodeMap = new Map<string, MindMapNode>();
+      const rootNodes: MindMapNode[] = [];
+      
+      // 首先创建所有节点
+      nodes.forEach(node => {
+        const { nodeData } = node.data;
+        nodeMap.set(node.id, {
+          id: node.id,
+          title: nodeData.title || '',
+          description: nodeData.description || '',
+          priority: nodeData.priority,
+          status: nodeData.status,
+          created_at: nodeData.created_at || new Date().toISOString(),
+          start_date: nodeData.start_date,
+          due_date: nodeData.due_date,
+          children: [],
+        });
+      });
+      
+      // 然后建立父子关系
+      edges.forEach(edge => {
+        const sourceNode = nodeMap.get(edge.source);
+        const targetNode = nodeMap.get(edge.target);
+        
+        if (sourceNode && targetNode) {
+          if (!sourceNode.children) {
+            sourceNode.children = [];
+          }
+          sourceNode.children.push(targetNode);
+          
+          // 如果边有标签，添加到目标节点
+          if (edge.data && edge.data.label) {
+            targetNode.edgeLabel = edge.data.label ? String(edge.data.label) : undefined;
+          }
+        }
+      });
+      
+      // 找出根节点（没有入边的节点）
+      const targetIds = new Set(edges.map(edge => edge.target));
+      nodes.forEach(node => {
+        if (!targetIds.has(node.id)) {
+          const rootNode = nodeMap.get(node.id);
+          if (rootNode) {
+            rootNodes.push(rootNode);
+          }
+        }
+      });
+      
+      // 设置根节点
+      currentTheme.children = rootNodes;
+      
+      // 创建完整的MindMapData
+      const mindMapData: MindMapData = {
+        mindMaps: [currentTheme],
+      };
+      
+      // 保存到JSON文件
+      const jsonSuccess = await saveToFile(mindMapData);
+      
+      // 保存到Markdown文件
+      const mdSuccess = await saveToMarkdown(mindMapData);
+      
+      if (jsonSuccess && mdSuccess) {
+        message.success('思维导图已保存为JSON和Markdown格式');
+      } else if (jsonSuccess) {
+        message.success('思维导图已保存为JSON格式，但Markdown格式保存失败');
+      } else if (mdSuccess) {
+        message.success('思维导图已保存为Markdown格式，但JSON格式保存失败');
+      } else {
+        message.error('保存失败');
+      }
+    } catch (error) {
+      console.error('保存思维导图时出错:', error);
+      message.error('保存失败');
+    }
+  };
+
   // 处理连接事件
   const onConnect = useCallback((params: Connection) => {
     console.log('连接参数:', params); // 调试信息
@@ -1319,95 +1473,6 @@ const MindMap: React.FC = () => {
     form.resetFields();
   };
 
-  const handleSave = async () => {
-    try {
-      // 创建当前思维导图数据
-      const currentTheme: MindMapTheme = {
-        id: 'theme-1',
-        title: '思维导图',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        children: [],
-      };
-      
-      // 将节点数据转换为MindMapNode结构
-      const nodeMap = new Map<string, MindMapNode>();
-      const rootNodes: MindMapNode[] = [];
-      
-      // 首先创建所有节点
-      nodes.forEach(node => {
-        const { nodeData } = node.data;
-        nodeMap.set(node.id, {
-          id: node.id,
-          title: nodeData.title || '',
-          description: nodeData.description || '',
-          priority: nodeData.priority,
-          status: nodeData.status,
-          created_at: nodeData.created_at || new Date().toISOString(),
-          start_date: nodeData.start_date,
-          due_date: nodeData.due_date,
-          children: [],
-        });
-      });
-      
-      // 然后建立父子关系
-      edges.forEach(edge => {
-        const sourceNode = nodeMap.get(edge.source);
-        const targetNode = nodeMap.get(edge.target);
-        
-        if (sourceNode && targetNode) {
-          if (!sourceNode.children) {
-            sourceNode.children = [];
-          }
-          sourceNode.children.push(targetNode);
-          
-          // 如果边有标签，添加到目标节点
-          if (edge.data && edge.data.label) {
-            targetNode.edgeLabel = edge.data.label ? String(edge.data.label) : undefined;
-          }
-        }
-      });
-      
-      // 找出根节点（没有入边的节点）
-      const targetIds = new Set(edges.map(edge => edge.target));
-      nodes.forEach(node => {
-        if (!targetIds.has(node.id)) {
-          const rootNode = nodeMap.get(node.id);
-          if (rootNode) {
-            rootNodes.push(rootNode);
-          }
-        }
-      });
-      
-      // 设置根节点
-      currentTheme.children = rootNodes;
-      
-      // 创建完整的MindMapData
-      const mindMapData: MindMapData = {
-        mindMaps: [currentTheme],
-      };
-      
-      // 保存到JSON文件
-      const jsonSuccess = await saveToFile(mindMapData);
-      
-      // 保存到Markdown文件
-      const mdSuccess = await saveToMarkdown(mindMapData);
-      
-      if (jsonSuccess && mdSuccess) {
-        message.success('思维导图已保存为JSON和Markdown格式');
-      } else if (jsonSuccess) {
-        message.success('思维导图已保存为JSON格式，但Markdown格式保存失败');
-      } else if (mdSuccess) {
-        message.success('思维导图已保存为Markdown格式，但JSON格式保存失败');
-      } else {
-        message.error('保存失败');
-      }
-    } catch (error) {
-      console.error('保存思维导图时出错:', error);
-      message.error('保存失败');
-    }
-  };
-
   const handleLoad = async () => {
     try {
       const data = await loadFromFile();
@@ -1649,6 +1714,29 @@ const MindMap: React.FC = () => {
             </Button>
             <Button icon={<SaveOutlined />} onClick={handleSave}>保存</Button>
             <Button icon={<UploadOutlined />} onClick={handleLoad} className="load-button">加载</Button>
+            <Tooltip title="导出为Markdown格式">
+              <Button 
+                icon={<FileOutlined />} 
+                onClick={async () => {
+                  try {
+                    // 获取当前思维导图数据
+                    const mindMapData = getMindMapData();
+                    // 导出为Markdown
+                    const success = await saveToMarkdown(mindMapData);
+                    if (success) {
+                      message.success('成功导出为Markdown格式');
+                    } else {
+                      message.error('导出失败');
+                    }
+                  } catch (error) {
+                    console.error('导出Markdown时出错:', error);
+                    message.error('导出失败');
+                  }
+                }}
+              >
+                导出MD
+              </Button>
+            </Tooltip>
             <Tooltip title={autoSave ? "自动保存已开启" : "自动保存已关闭"}>
               <div style={{ display: 'flex', alignItems: 'center', marginLeft: '8px' }}>
                 <span style={{ marginRight: '8px', fontSize: '12px', color: '#666' }}>自动保存</span>

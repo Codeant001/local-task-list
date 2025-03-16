@@ -79,7 +79,7 @@ export const loadFromFile = async (): Promise<MindMapData | null> => {
 
 // 将思维导图数据转换为Markdown格式
 export const convertToMarkdown = (data: MindMapData): string => {
-  let markdown = '# 思维导图\n\n';
+  let markdown = '# 思维导图导出\n\n';
   
   if (!data.mindMaps || data.mindMaps.length === 0) {
     return markdown + '无内容';
@@ -87,6 +87,24 @@ export const convertToMarkdown = (data: MindMapData): string => {
   
   const theme = data.mindMaps[0];
   markdown += `## ${theme.title || '主题'}\n\n`;
+  
+  // 添加主题信息
+  if (theme.start_date || theme.due_date) {
+    markdown += '### 主题信息\n\n';
+    if (theme.start_date) {
+      markdown += `- **开始日期**: ${theme.start_date}\n`;
+    }
+    if (theme.due_date) {
+      markdown += `- **截止日期**: ${theme.due_date}\n`;
+    }
+    if (theme.created_at) {
+      markdown += `- **创建时间**: ${new Date(theme.created_at).toLocaleString()}\n`;
+    }
+    if (theme.updated_at) {
+      markdown += `- **更新时间**: ${new Date(theme.updated_at).toLocaleString()}\n`;
+    }
+    markdown += '\n';
+  }
   
   // 递归处理节点
   const processNode = (node: any, level: number): string => {
@@ -96,20 +114,17 @@ export const convertToMarkdown = (data: MindMapData): string => {
     // 添加标题
     nodeMarkdown += `${prefix} ${node.title || '无标题'}\n\n`;
     
-    // 添加描述
-    if (node.description) {
-      nodeMarkdown += `${node.description}\n\n`;
-    }
-    
-    // 添加元数据
+    // 添加元数据（状态信息）
     const metaData = [];
+    
     if (node.priority) {
       const priorityMap: Record<string, string> = {
         'low': '低',
         'medium': '中',
         'high': '高'
       };
-      metaData.push(`- **优先级**: ${priorityMap[node.priority] || node.priority}`);
+      const priorityEmoji = node.priority === 'high' ? '🔴' : (node.priority === 'medium' ? '🟡' : '🟢');
+      metaData.push(`- **优先级**: ${priorityEmoji} ${priorityMap[node.priority] || node.priority}`);
     }
     
     if (node.status) {
@@ -118,19 +133,29 @@ export const convertToMarkdown = (data: MindMapData): string => {
         'in_progress': '进行中',
         'done': '已完成'
       };
-      metaData.push(`- **状态**: ${statusMap[node.status] || node.status}`);
+      const statusEmoji = node.status === 'done' ? '✅' : (node.status === 'in_progress' ? '🔄' : '📝');
+      metaData.push(`- **状态**: ${statusEmoji} ${statusMap[node.status] || node.status}`);
     }
     
     if (node.start_date) {
-      metaData.push(`- **开始日期**: ${node.start_date}`);
+      metaData.push(`- **开始日期**: 📅 ${node.start_date}`);
     }
     
     if (node.due_date) {
-      metaData.push(`- **截止日期**: ${node.due_date}`);
+      metaData.push(`- **截止日期**: ⏰ ${node.due_date}`);
+    }
+    
+    if (node.created_at) {
+      metaData.push(`- **创建时间**: ${new Date(node.created_at).toLocaleString()}`);
     }
     
     if (metaData.length > 0) {
       nodeMarkdown += metaData.join('\n') + '\n\n';
+    }
+    
+    // 添加描述
+    if (node.description) {
+      nodeMarkdown += `**描述**:\n\n${node.description}\n\n`;
     }
     
     // 处理子节点
