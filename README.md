@@ -1,46 +1,123 @@
-# Getting Started with Create React App
+# 思维导图任务管理系统
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+一个功能强大的本地思维导图应用，专注于任务管理和知识组织，支持多种节点连接方式、Markdown内容编辑以及JSON/Markdown格式导出。
 
-## Available Scripts
+## 功能特点
 
-In the project directory, you can run:
+### 节点管理
+- **创建与编辑节点**：支持添加、编辑和删除节点
+- **节点属性**：每个节点可设置标题、描述、优先级、状态、开始日期和截止日期
+- **节点选择效果**：点击节点时有平滑的视觉反馈，包括边框高亮、阴影效果和微小的放大动画
+- **富文本编辑**：使用集成的富文本编辑器编写节点描述，支持格式化文本、列表、代码块等
+- **Markdown支持**：节点描述支持Markdown语法，并提供实时预览功能
 
-### `npm start`
+### 连接功能
+- **多向连接**：支持从节点的四个方向（上、下、左、右）创建连接
+- **连接方式**：
+  - 从节点的连接点拖动到另一个节点
+  - 选中一个节点，再点击另一个节点进行连接
+- **连接编辑**：支持编辑连接线上的文本标签
+- **智能连接点选择**：根据节点之间的相对位置自动选择最合适的连接点
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+### 布局与视图
+- **自动布局**：一键整理节点布局，支持四种方向（从左到右、从右到左、从上到下、从下到上）
+- **自定义间距**：可调整节点间距和层级间距，从紧凑到超宽四个级别
+- **缩放与平移**：支持鼠标滚轮缩放和拖拽平移画布
+- **撤销与重做**：支持操作历史，可以撤销(Ctrl+Z)和重做(Ctrl+Y)操作
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+### 数据管理
+- **保存功能**：
+  - 将思维导图保存为JSON格式，方便后续加载和编辑
+  - 同时生成Markdown文档，包含所有节点的内容和结构
+- **加载功能**：从JSON文件加载已保存的思维导图
+- **自动保存**：可选的自动保存功能，关闭编辑窗口时自动保存更改
 
-### `npm test`
+### 用户界面
+- **上下文菜单**：右键点击节点或空白区域显示上下文菜单
+- **工具栏**：顶部工具栏提供快速访问常用功能
+- **操作提示**：界面中包含使用提示，帮助用户了解如何连接节点
+- **平滑动画**：节点选择、连接创建和布局调整都有平滑的过渡动画
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+## 技术栈
 
-### `npm run build`
+- **React**: 用于构建用户界面
+- **TypeScript**: 提供类型安全
+- **ReactFlow**: 提供流程图和节点连接功能
+- **Ant Design**: UI组件库
+- **WangEditor**: 富文本编辑器
+- **React Markdown**: Markdown渲染
+- **Dagre**: 自动布局算法
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+## 快速开始
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+### 安装依赖
+```bash
+npm install
+```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+### 启动开发服务器
+```bash
+npm start
+```
+应用将在 http://localhost:3000 启动
 
-### `npm run eject`
+### 构建生产版本
+```bash
+npm run build
+```
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+## 使用指南
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+### 创建节点
+- 点击顶部工具栏的"新增节点"按钮
+- 右键点击画布，选择"新增节点"
+- 从现有节点拖出连接线到空白处
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+### 编辑节点
+- 双击节点打开编辑窗口
+- 编辑标题、描述、优先级、状态和日期信息
+- 使用富文本编辑器或Markdown语法编写描述
 
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
+### 连接节点
+- 从节点的连接点（四个方向的小圆点）拖动到目标节点
+- 或先选中一个节点，再点击另一个节点创建连接
 
-## Learn More
+### 编辑连接
+- 点击连接线选中它
+- 双击连接线编辑标签文本
+- 使用连接线上的删除按钮移除连接
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+### 保存与加载
+- 点击"保存"按钮将思维导图保存为JSON和Markdown格式
+- 点击"加载"按钮从JSON文件加载思维导图
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+### 布局调整
+- 使用"自动布局"按钮整理节点位置
+- 从下拉菜单选择布局方向和间距
+- 手动拖动节点调整位置
+
+## 数据格式
+
+### JSON格式
+保存的JSON文件包含完整的思维导图数据，包括节点结构、属性和连接关系。
+
+### Markdown格式
+导出的Markdown文件按层级结构组织所有节点内容，包括：
+- 节点标题和描述
+- 优先级、状态信息
+- 开始和截止日期
+- 保持节点的层级关系
+
+## 贡献指南
+
+欢迎贡献代码、报告问题或提出新功能建议。请遵循以下步骤：
+
+1. Fork 项目
+2. 创建功能分支 (`git checkout -b feature/amazing-feature`)
+3. 提交更改 (`git commit -m 'Add some amazing feature'`)
+4. 推送到分支 (`git push origin feature/amazing-feature`)
+5. 创建Pull Request
+
+## 许可证
+
+本项目采用 MIT 许可证 - 详情请参阅 LICENSE 文件
