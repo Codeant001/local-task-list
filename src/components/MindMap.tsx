@@ -26,7 +26,7 @@ import ReactFlow, {
 } from 'reactflow';
 import dagre from 'dagre';
 import 'reactflow/dist/style.css';
-import { Button, Space, Modal, Form, Input, Select, Tooltip, Divider, message, Switch } from 'antd';
+import { Button, Space, Modal, Form, Input, Select, Tooltip, Divider, message, Switch, Dropdown } from 'antd';
 import { 
   PlusOutlined, 
   LayoutOutlined, 
@@ -37,6 +37,10 @@ import {
   SaveOutlined,
   UploadOutlined,
   FileOutlined,
+  FileAddOutlined,
+  HistoryOutlined,
+  LockOutlined,
+  UnlockOutlined,
 } from '@ant-design/icons';
 import { MindMapData, MindMapNode, MindMapTheme } from '../types/MindMap';
 import { saveToFile, loadFromFile, saveToMarkdown } from '../utils/fileUtils';
@@ -47,6 +51,26 @@ import { Editor, Toolbar } from '@wangeditor/editor-for-react';
 import { IDomEditor, IEditorConfig, IToolbarConfig } from '@wangeditor/editor';
 
 const { Option } = Select;
+
+// 简化的 File System Access API 类型定义
+interface FileSystemDirectoryHandle {
+  name: string;
+  getFileHandle(name: string, options?: { create?: boolean }): Promise<FileSystemFileHandle>;
+}
+
+interface FileSystemFileHandle {
+  createWritable(): Promise<FileSystemWritableFileStream>;
+}
+
+interface FileSystemWritableFileStream {
+  write(data: any): Promise<void>;
+  close(): Promise<void>;
+}
+
+// 检查是否支持目录选择器
+const isDirectoryPickerSupported = (): boolean => {
+  return 'showDirectoryPicker' in window;
+};
 
 // 添加全局样式
 const GlobalStyles = () => {
@@ -113,6 +137,7 @@ const GlobalStyles = () => {
 interface CustomEdgeData {
   label?: string;
   isEditing?: boolean;
+  showDelete?: boolean;
 }
 
 // 自定义连线组件
@@ -131,6 +156,7 @@ const CustomEdge: React.FC<EdgeProps> = ({
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [label, setLabel] = useState((data as CustomEdgeData)?.label || '');
+  const [showDelete, setShowDelete] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const edgeRef = useRef<SVGPathElement>(null);
   const [edgeCenter, setEdgeCenter] = useState({ x: 0, y: 0 });
@@ -144,7 +170,7 @@ const CustomEdge: React.FC<EdgeProps> = ({
     targetX,
     targetY,
     targetPosition: targetPosition || Position.Left,
-    curvature: 0.25, // 控制曲线的弯曲程度
+    curvature: 0.25, // 使用固定的弯曲度
   });
 
   // 计算连线中心点，用于放置文字和按钮
@@ -152,17 +178,18 @@ const CustomEdge: React.FC<EdgeProps> = ({
     setEdgeCenter({ x: labelX, y: labelY });
   }, [labelX, labelY]);
 
-  // 响应外部 isEditing 属性变化
+  // 从 data 中获取状态
   useEffect(() => {
-    if ((data as CustomEdgeData)?.isEditing) {
-      setIsEditing(true);
-      // 使用 setTimeout 确保 DOM 已更新
-      setTimeout(() => {
-        if (inputRef.current) {
-          inputRef.current.focus();
-          inputRef.current.select();
-        }
-      }, 50);
+    if (data) {
+      if ((data as CustomEdgeData).isEditing !== undefined) {
+        setIsEditing((data as CustomEdgeData).isEditing || false);
+      }
+      if ((data as CustomEdgeData).showDelete !== undefined) {
+        setShowDelete((data as CustomEdgeData).showDelete || false);
+      }
+      if ((data as CustomEdgeData).label !== undefined) {
+        setLabel((data as CustomEdgeData).label || '');
+      }
     }
   }, [data]);
 
@@ -172,9 +199,8 @@ const CustomEdge: React.FC<EdgeProps> = ({
     const newLabel = inputRef.current?.value || '';
     setLabel(newLabel);
     
-    // 更新边的数据
-    setEdges((edges) => 
-      edges.map((edge) => {
+    setEdges((eds) => 
+      eds.map((edge) => {
         if (edge.id === id) {
           return {
             ...edge,
@@ -196,19 +222,6 @@ const CustomEdge: React.FC<EdgeProps> = ({
     setEdges((edges) => edges.filter((edge) => edge.id !== id));
   };
 
-  // 处理开始编辑
-  const handleStartEdit = (event: React.MouseEvent) => {
-    event.stopPropagation();
-    setIsEditing(true);
-    // 使用 setTimeout 确保 DOM 已更新
-    setTimeout(() => {
-      if (inputRef.current) {
-        inputRef.current.focus();
-        inputRef.current.select();
-      }
-    }, 50);
-  };
-
   return (
     <g>
       <path
@@ -224,16 +237,39 @@ const CustomEdge: React.FC<EdgeProps> = ({
           transition: 'all 0.25s cubic-bezier(0.25, 0.1, 0.25, 1)',
           strokeLinecap: 'round',
           strokeLinejoin: 'round',
+          cursor: 'pointer',
+        }}
+        onDoubleClick={() => {
+          setIsEditing(true);
+          setShowDelete(true);
+          
+          // 更新全局状态
+          setEdges((eds) => 
+            eds.map((edge) => {
+              if (edge.id === id) {
+                return {
+                  ...edge,
+                  data: {
+                    ...edge.data,
+                    isEditing: true,
+                    showDelete: true
+                  },
+                  selected: true
+                };
+              }
+              return edge;
+            })
+          );
         }}
       />
       
       {/* 连线文字 */}
       {!isEditing && (
         <foreignObject
-          width={100}
-          height={40}
-          x={edgeCenter.x - 50}
-          y={edgeCenter.y - 20}
+          width={80}
+          height={30}
+          x={edgeCenter.x - 40}
+          y={edgeCenter.y - 15}
           className="edgebutton-foreignobject"
           requiredExtensions="http://www.w3.org/1999/xhtml"
         >
@@ -248,12 +284,12 @@ const CustomEdge: React.FC<EdgeProps> = ({
           >
             <div
               style={{
-                padding: '2px 4px',
-                fontSize: '10px',
+                padding: '2px 3px',
+                fontSize: '9px',
                 background: selected ? 'rgba(24, 144, 255, 0.1)' : 'transparent',
-                borderRadius: '4px',
+                borderRadius: '3px',
                 color: selected ? '#1890ff' : '#666',
-                maxWidth: '100px',
+                maxWidth: '80px',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
@@ -261,7 +297,7 @@ const CustomEdge: React.FC<EdgeProps> = ({
                 transition: 'all 0.25s cubic-bezier(0.25, 0.1, 0.25, 1)',
               }}
             >
-              {label || (selected ? '点击编辑' : '')}
+              {label}
             </div>
           </div>
         </foreignObject>
@@ -270,17 +306,17 @@ const CustomEdge: React.FC<EdgeProps> = ({
       {/* 编辑输入框 */}
       {isEditing && (
         <foreignObject
-          width={120}
-          height={40}
-          x={edgeCenter.x - 60}
-          y={edgeCenter.y - 20}
+          width={90}
+          height={30}
+          x={edgeCenter.x - 45}
+          y={edgeCenter.y - 15}
           requiredExtensions="http://www.w3.org/1999/xhtml"
         >
           <div
             style={{
               background: 'white',
               padding: '2px',
-              borderRadius: '4px',
+              borderRadius: '3px',
               boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
               display: 'flex',
               alignItems: 'center',
@@ -290,14 +326,15 @@ const CustomEdge: React.FC<EdgeProps> = ({
             <input
               ref={inputRef}
               defaultValue={label}
+              autoFocus
               onBlur={handleTextChange}
               onKeyPress={(e) => e.key === 'Enter' && handleTextChange()}
               style={{
                 width: '100%',
                 border: 'none',
                 outline: 'none',
-                fontSize: '10px',
-                padding: '2px 4px',
+                fontSize: '9px',
+                padding: '1px 3px',
                 textAlign: 'center',
               }}
             />
@@ -305,13 +342,13 @@ const CustomEdge: React.FC<EdgeProps> = ({
         </foreignObject>
       )}
       
-      {/* 操作按钮 - 仅在选中时显示 */}
-      {selected && !isEditing && (
+      {/* 删除按钮 - 仅在双击后显示 */}
+      {selected && showDelete && !isEditing && (
         <foreignObject
-          width={50}
-          height={24}
-          x={edgeCenter.x - 25}
-          y={edgeCenter.y + 15}
+          width={40}
+          height={20}
+          x={edgeCenter.x - 20}
+          y={edgeCenter.y + 12}
           requiredExtensions="http://www.w3.org/1999/xhtml"
         >
           <div
@@ -319,44 +356,26 @@ const CustomEdge: React.FC<EdgeProps> = ({
               display: 'flex',
               justifyContent: 'center',
               alignItems: 'center',
-              gap: '4px',
+              gap: '3px',
             }}
           >
-            <button
-              onClick={handleStartEdit}
-              style={{
-                background: 'white',
-                border: '1px solid #ddd',
-                borderRadius: '4px',
-                width: '20px',
-                height: '20px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                padding: 0,
-                fontSize: '10px',
-              }}
-            >
-              <EditOutlined style={{ fontSize: '10px' }} />
-            </button>
             <button
               onClick={handleDelete}
               style={{
                 background: 'white',
                 border: '1px solid #ddd',
-                borderRadius: '4px',
-                width: '20px',
-                height: '20px',
+                borderRadius: '3px',
+                width: '16px',
+                height: '16px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: 'pointer',
                 padding: 0,
-                fontSize: '10px',
+                fontSize: '9px',
               }}
             >
-              <DeleteOutlined style={{ fontSize: '10px', color: '#ff4d4f' }} />
+              <DeleteOutlined style={{ fontSize: '9px', color: '#ff4d4f' }} />
             </button>
           </div>
         </foreignObject>
@@ -376,8 +395,8 @@ const edgeTypes: EdgeTypes = {
 
 // 定义布局方向
 const LAYOUT_DIRECTION = 'LR'; // LR = 从左到右, TB = 从上到下
-const NODE_WIDTH = 140;
-const NODE_HEIGHT = 35;
+const NODE_WIDTH = 112;
+const NODE_HEIGHT = 56;
 
 // 自动布局函数 - 添加eslint-disable注释，因为这个函数可能在将来会用到
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -467,25 +486,11 @@ const getLayoutedElements = (nodes: FlowNode[], edges: Edge[], direction = LAYOU
   return layoutedNodes;
 };
 
-const initialNodes: FlowNode[] = [
-  {
-    id: 'node-1',
-    type: 'custom',
-    data: { 
-      label: '我的任务',
-      nodeData: {
-        id: 'node-1',
-        title: '我的任务',
-        created_at: new Date().toISOString(),
-        start_date: new Date().toISOString().split('T')[0],
-        due_date: new Date().toISOString().split('T')[0],
-      }
-    },
-    position: { x: 250, y: 0 },
-  },
-];
+// 修改初始节点状态为空数组
+const initialNodes: FlowNode[] = [];
 
 const MindMap: React.FC = () => {
+  // 基础状态
   const [nodes, setNodes, onNodesChangeDefault] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChangeDefault] = useEdgesState([]);
   const [selectedNode, setSelectedNode] = useState<FlowNode | null>(null);
@@ -493,6 +498,8 @@ const MindMap: React.FC = () => {
   const [layoutDirection, setLayoutDirection] = useState(LAYOUT_DIRECTION);
   const [nodeSpacing, setNodeSpacing] = useState(100); // 节点间距
   const [rankSpacing, setRankSpacing] = useState(150); // 层级间距
+  const [saveDirectoryHandle, setSaveDirectoryHandle] = useState<any>(null);
+  const [saveDirectoryPath, setSaveDirectoryPath] = useState<string>('未选择保存路径');
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean;
     x: number;
@@ -503,6 +510,20 @@ const MindMap: React.FC = () => {
     x: 0,
     y: 0,
   });
+  
+  // 功能状态
+  const [isLocked, setIsLocked] = useState(false); // 锁定状态
+  const [autoSave, setAutoSave] = useState<boolean>(true); // 自动保存状态
+  const [canvasHistory, setCanvasHistory] = useState<{
+    id: string;
+    name: string;
+    nodes: FlowNode[];
+    edges: Edge[];
+    createdAt: string;
+  }[]>([]);
+  const [currentCanvasId, setCurrentCanvasId] = useState<string>('default');
+  const [currentCanvasName, setCurrentCanvasName] = useState<string>('未命名画布');
+  const [isCanvasNameEditing, setIsCanvasNameEditing] = useState<boolean>(false);
   
   // 历史记录状态
   const [history, setHistory] = useState<{
@@ -517,6 +538,11 @@ const MindMap: React.FC = () => {
     lastActionTime: Date.now(),
   });
   
+  // 编辑器状态
+  const [editor, setEditor] = useState<IDomEditor | null>(null);
+  const [html, setHtml] = useState<string>('');
+  
+  // 引用和实例
   const [form] = Form.useForm();
   const reactFlowInstance = useReactFlow();
   const newNodeRef = useRef<FlowNode | null>(null);
@@ -524,10 +550,7 @@ const MindMap: React.FC = () => {
   const isDraggingRef = useRef(false);
   const isUndoingRef = useRef(false);
   const lastHistoryUpdateRef = useRef<number>(Date.now());
-  const [editor, setEditor] = useState<IDomEditor | null>(null);
-  const [html, setHtml] = useState<string>('');
-  const [autoSave, setAutoSave] = useState<boolean>(true); // 默认开启自动保存
-  
+
   // 编辑器配置
   const editorConfig = useMemo<Partial<IEditorConfig>>(() => ({
     placeholder: '请输入内容...',
@@ -566,10 +589,6 @@ const MindMap: React.FC = () => {
   // 工具栏配置
   const toolbarConfig = useMemo<Partial<IToolbarConfig>>(() => ({
     excludeKeys: [],
-    insertKeys: {
-      index: 23,
-      keys: ['todo'], // 添加待办事项功能
-    },
   }), []);
 
   // 添加历史记录
@@ -740,10 +759,10 @@ const MindMap: React.FC = () => {
     const isHorizontal = layoutDirection === 'LR' || layoutDirection === 'RL';
     dagreGraph.setGraph({ 
       rankdir: layoutDirection,
-      nodesep: isHorizontal ? nodeSpacing : nodeSpacing / 2, // 节点之间的水平间距
-      ranksep: isHorizontal ? rankSpacing : rankSpacing / 1.5, // 层级之间的垂直间距
-      marginx: 50, // 图的水平边距
-      marginy: 50, // 图的垂直边距
+      nodesep: isHorizontal ? nodeSpacing * 0.7 : nodeSpacing * 0.35, // 节点之间的水平间距
+      ranksep: isHorizontal ? rankSpacing * 0.7 : rankSpacing * 0.5, // 层级之间的垂直间距
+      marginx: 35, // 图的水平边距
+      marginy: 35, // 图的垂直边距
       align: 'DL', // 对齐方式：DL=向下和向左
       acyclicer: 'greedy', // 处理循环依赖
       ranker: 'network-simplex', // 布局算法
@@ -885,18 +904,17 @@ const MindMap: React.FC = () => {
   // 处理保存
   const handleSave = async () => {
     try {
-      // 创建当前思维导图数据
+      // 创建节点映射
+      const nodeMap = new Map();
+      const rootNodes: MindMapNode[] = [];
+      
+      // 创建主题
       const currentTheme: MindMapTheme = {
-        id: 'theme-1',
-        title: '思维导图',
+        id: currentCanvasId,
+        title: currentCanvasName,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
         children: [],
       };
-      
-      // 将节点数据转换为MindMapNode结构
-      const nodeMap = new Map<string, MindMapNode>();
-      const rootNodes: MindMapNode[] = [];
       
       // 首先创建所有节点
       nodes.forEach(node => {
@@ -951,18 +969,57 @@ const MindMap: React.FC = () => {
         mindMaps: [currentTheme],
       };
       
-      // 保存到JSON文件
-      const jsonSuccess = await saveToFile(mindMapData);
+      // 检查是否在非 HTTPS 环境
+      const isNotSecure = window.location.protocol !== 'https:' && window.location.hostname !== 'localhost';
       
-      // 保存到Markdown文件
-      const mdSuccess = await saveToMarkdown(mindMapData);
+      // 如果没有选择保存目录且环境支持，提示用户选择
+      if (!saveDirectoryHandle && 'showDirectoryPicker' in window && !isNotSecure) {
+        const shouldSelect = await new Promise<boolean>((resolve) => {
+          Modal.confirm({
+            title: '选择保存路径',
+            content: '您尚未选择保存路径，是否现在选择？',
+            okText: '选择',
+            cancelText: '取消',
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          });
+        });
+        
+        if (shouldSelect) {
+          await selectSaveDirectory();
+        }
+      }
+      
+      // 保存到JSON文件，使用画布名称作为文件名
+      const jsonSuccess = await saveToFile(mindMapData, currentCanvasName, saveDirectoryHandle);
+      
+      // 保存到Markdown文件，使用画布名称作为文件名
+      const mdSuccess = await saveToMarkdown(mindMapData, currentCanvasName, saveDirectoryHandle);
       
       if (jsonSuccess && mdSuccess) {
-        message.success('思维导图已保存为JSON和Markdown格式');
+        if (saveDirectoryHandle) {
+          message.success(`思维导图已保存到 ${saveDirectoryPath} 目录`);
+        } else if (isNotSecure) {
+          message.success('思维导图已保存为JSON和Markdown格式（使用传统下载方式）');
+        } else {
+          message.success('思维导图已保存为JSON和Markdown格式');
+        }
       } else if (jsonSuccess) {
-        message.success('思维导图已保存为JSON格式，但Markdown格式保存失败');
+        if (saveDirectoryHandle) {
+          message.success(`JSON文件已保存到 ${saveDirectoryPath} 目录，但Markdown格式保存失败`);
+        } else if (isNotSecure) {
+          message.success('思维导图已保存为JSON格式（使用传统下载方式），但Markdown格式保存失败');
+        } else {
+          message.success('思维导图已保存为JSON格式，但Markdown格式保存失败');
+        }
       } else if (mdSuccess) {
-        message.success('思维导图已保存为Markdown格式，但JSON格式保存失败');
+        if (saveDirectoryHandle) {
+          message.success(`Markdown文件已保存到 ${saveDirectoryPath} 目录，但JSON格式保存失败`);
+        } else if (isNotSecure) {
+          message.success('思维导图已保存为Markdown格式（使用传统下载方式），但JSON格式保存失败');
+        } else {
+          message.success('思维导图已保存为Markdown格式，但JSON格式保存失败');
+        }
       } else {
         message.error('保存失败');
       }
@@ -1091,11 +1148,13 @@ const MindMap: React.FC = () => {
       // 检查目标是否为画布（空白区域）
       const targetIsPane = (event.target as Element)?.classList?.contains('react-flow__pane');
       
-      // 检查目标是否为节点
+      // 检查目标是否为节点或节点的连接点
       const targetIsNode = (event.target as Element)?.closest('.react-flow__node');
+      const targetIsHandle = (event.target as Element)?.closest('.react-flow__handle');
       
-      // 只有在拖动到空白区域且不是节点时才创建新节点
-      if (targetIsPane && !targetIsNode && selectedNode) {
+      // 只有在拖动到空白区域且不是节点或连接点时才创建新节点
+      // 如果目标是节点或连接点，说明已经成功连线，不需要创建新节点
+      if (targetIsPane && !targetIsNode && !targetIsHandle && selectedNode) {
         const position = reactFlowInstance.screenToFlowPosition({
           x: event.clientX,
           y: event.clientY,
@@ -1112,8 +1171,8 @@ const MindMap: React.FC = () => {
         
         // 计算新节点与当前节点的距离
         // 水平和垂直方向使用不同的距离，使布局更加美观
-        const HORIZONTAL_OFFSET = NODE_WIDTH * 2; // 水平方向距离为节点宽度的2倍
-        const VERTICAL_OFFSET = NODE_HEIGHT * 3; // 垂直方向距离为节点高度的3倍
+        const HORIZONTAL_OFFSET = NODE_WIDTH * 1.5; // 水平方向距离为节点宽度的1.5倍
+        const VERTICAL_OFFSET = NODE_HEIGHT * 2; // 垂直方向距离为节点高度的2倍
         
         let adjustedPosition = { ...position };
         let targetHandleId: string;
@@ -1201,18 +1260,22 @@ const MindMap: React.FC = () => {
     event.stopPropagation();
     setSelectedNode(node);
     
-    // 填充表单数据
-    const nodeData = node.data.nodeData;
-    form.setFieldsValue({
-      title: nodeData.title || '',
-      priority: nodeData.priority || undefined,
-      status: nodeData.status || undefined,
-      start_date: nodeData.start_date || '',
-      due_date: nodeData.due_date || '',
-    });
-    
-    // 更新富文本编辑器内容
-    setHtml(nodeData.description || '');
+    // 确保 form 实例已经准备好
+    if (form && node.data.nodeData) {
+      // 使用 setTimeout 确保在下一个事件循环中执行
+      setTimeout(() => {
+        form.setFieldsValue({
+          title: node.data.nodeData.title || '',
+          priority: node.data.nodeData.priority || undefined,
+          status: node.data.nodeData.status || undefined,
+          start_date: node.data.nodeData.start_date || '',
+          due_date: node.data.nodeData.due_date || '',
+        });
+      }, 0);
+      
+      // 更新富文本编辑器内容
+      setHtml(node.data.nodeData.description || '');
+    }
   };
 
   // 双击节点打开编辑弹窗
@@ -1292,19 +1355,16 @@ const MindMap: React.FC = () => {
     
     let newNodePosition = { x: 100, y: 100 };
     
-    // 如果有父节点，则计算新节点位置
     if (parentId) {
       const parentNode = nodes.find(node => node.id === parentId);
       if (parentNode) {
-        // 计算新节点与当前节点的距离
-        const HORIZONTAL_OFFSET = NODE_WIDTH * 2; // 水平方向距离为节点宽度的2倍
+        const HORIZONTAL_OFFSET = NODE_WIDTH * 1.5;
         
         newNodePosition = {
           x: parentNode.position.x + HORIZONTAL_OFFSET,
           y: parentNode.position.y,
         };
         
-        // 创建连接边
         const newEdge: Edge = {
           id: `edge-${Date.now()}`,
           source: parentId,
@@ -1331,7 +1391,8 @@ const MindMap: React.FC = () => {
           created_at: new Date().toISOString(),
           start_date: currentDate,
           due_date: currentDate,
-        }
+        },
+        isLocked, // 添加锁定状态
       },
       position: newNodePosition,
     };
@@ -1339,7 +1400,6 @@ const MindMap: React.FC = () => {
     setNodes((nds) => [...nds, newNode]);
     setSelectedNode(newNode);
     
-    // 只有在添加子节点时才弹出编辑界面
     if (parentId) {
       form.resetFields();
       setIsModalVisible(true);
@@ -1529,8 +1589,8 @@ const MindMap: React.FC = () => {
           if (node.children && node.children.length > 0) {
             node.children.forEach((child, index) => {
               const childPosition = {
-                x: position.x + 250, // 子节点向右偏移
-                y: position.y + (index - node.children!.length / 2) * 100, // 子节点垂直分布
+                x: position.x + NODE_WIDTH * 1.5, // 子节点向右偏移
+                y: position.y + (index - node.children!.length / 2) * NODE_HEIGHT * 1.5, // 子节点垂直分布
               };
               processNode(child, newNode.id, childPosition, level + 1);
             });
@@ -1549,7 +1609,7 @@ const MindMap: React.FC = () => {
           theme.children.forEach((child, index) => {
             const childPosition = {
               x: initialX,
-              y: initialY + index * 150, // 垂直排列根节点
+              y: initialY + index * NODE_HEIGHT * 2, // 垂直排列根节点
             };
             processNode(child, undefined, childPosition);
           });
@@ -1615,25 +1675,31 @@ const MindMap: React.FC = () => {
 
   // 处理连线点击事件
   const onEdgeClick = useCallback((event: React.MouseEvent, edge: Edge) => {
+    // 只设置选中状态
     setEdges((eds) => 
-      eds.map((e) => {
-        if (e.id === edge.id) {
-          return {
-            ...e,
-            selected: true,
-          };
-        }
-        return {
-          ...e,
-          selected: false,
-        };
-      })
+      eds.map((e) => ({
+        ...e,
+        selected: e.id === edge.id,
+      }))
     );
   }, [setEdges]);
 
   // 处理连线双击事件
   const onEdgeDoubleClick = useCallback((event: React.MouseEvent, edge: Edge) => {
-    // 打开编辑模式
+    event.stopPropagation();
+    // 打开编辑模式并设置选中状态
+    setEdges((eds) => 
+      eds.map((e) => ({
+        ...e,
+        data: {
+          ...e.data,
+          isEditing: e.id === edge.id,
+        },
+        selected: e.id === edge.id,
+      }))
+    );
+    
+    // 设置 showDelete 为 true，确保删除按钮显示
     setEdges((eds) => 
       eds.map((e) => {
         if (e.id === edge.id) {
@@ -1641,9 +1707,8 @@ const MindMap: React.FC = () => {
             ...e,
             data: {
               ...e.data,
-              isEditing: true,
+              showDelete: true,
             },
-            selected: true,
           };
         }
         return e;
@@ -1654,6 +1719,9 @@ const MindMap: React.FC = () => {
   // 添加键盘快捷键支持
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      // 如果画布被锁定，不处理快捷键
+      if (isLocked) return;
+      
       // Ctrl+Z 撤销
       if (event.ctrlKey && event.key === 'z' && !event.shiftKey) {
         event.preventDefault();
@@ -1671,7 +1739,7 @@ const MindMap: React.FC = () => {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [handleUndo, handleRedo]);
+  }, [handleUndo, handleRedo, isLocked]);
 
   // 组件卸载时销毁编辑器实例
   useEffect(() => {
@@ -1682,49 +1750,474 @@ const MindMap: React.FC = () => {
     };
   }, [editor]);
 
+  // 保存当前画布到历史记录
+  const saveToHistory = useCallback(() => {
+    // 检查是否已存在相同ID的画布
+    const existingCanvasIndex = canvasHistory.findIndex(canvas => canvas.id === currentCanvasId);
+    
+    const newCanvas = {
+      id: currentCanvasId,
+      name: currentCanvasName,
+      nodes: nodes,
+      edges: edges,
+      createdAt: new Date().toISOString(),
+    };
+    
+    if (existingCanvasIndex >= 0) {
+      // 更新已存在的画布
+      setCanvasHistory(prev => {
+        const newHistory = [...prev];
+        newHistory[existingCanvasIndex] = newCanvas;
+        return newHistory;
+      });
+    } else {
+      // 添加新画布到历史记录
+      setCanvasHistory(prev => [...prev, newCanvas]);
+    }
+  }, [nodes, edges, canvasHistory, currentCanvasId, currentCanvasName]);
+
+  // 创建新画布
+  const createNewCanvas = useCallback(() => {
+    // 保存当前画布到历史记录
+    if (nodes.length > 0) {
+      saveToHistory();
+    }
+    
+    // 弹出对话框让用户输入画布名称
+    Modal.confirm({
+      title: '新建画布',
+      content: (
+        <Input 
+          placeholder="请输入画布名称" 
+          defaultValue="未命名画布" 
+          onChange={(e) => setCurrentCanvasName(e.target.value)}
+        />
+      ),
+      onOk: () => {
+        // 清空当前画布
+        setNodes([]);
+        setEdges([]);
+        // 重置历史记录
+        setHistory({
+          nodes: [[]],
+          edges: [[]],
+          currentIndex: 0,
+          lastActionTime: Date.now(),
+        });
+        // 生成新的画布ID
+        const newCanvasId = `canvas-${Date.now()}`;
+        setCurrentCanvasId(newCanvasId);
+        message.success(`已创建新画布: ${currentCanvasName}`);
+      },
+      okText: '确认',
+      cancelText: '取消',
+    });
+  }, [nodes, edges, saveToHistory, currentCanvasName]);
+
+  // 切换到历史画布
+  const switchToCanvas = useCallback((canvas: typeof canvasHistory[0]) => {
+    // 保存当前画布到历史记录
+    if (nodes.length > 0) {
+      saveToHistory();
+    }
+    // 加载选中的历史画布
+    setNodes(canvas.nodes);
+    setEdges(canvas.edges);
+    setCurrentCanvasId(canvas.id);
+    setCurrentCanvasName(canvas.name);
+    // 重置历史记录
+    setHistory({
+      nodes: [canvas.nodes],
+      edges: [canvas.edges],
+      currentIndex: 0,
+      lastActionTime: Date.now(),
+    });
+    message.success(`已切换到${canvas.name}`);
+  }, [nodes, edges, saveToHistory]);
+
+  // 初始化默认画布
+  useEffect(() => {
+    if (currentCanvasId === 'default' && canvasHistory.length === 0) {
+      setCurrentCanvasName('未命名画布');
+    }
+  }, []);
+
+  // 当锁定状态改变时更新所有节点
+  useEffect(() => {
+    setNodes((nds) => 
+      nds.map(node => ({
+        ...node,
+        data: {
+          ...node.data,
+          isLocked,
+        },
+      }))
+    );
+  }, [isLocked]);
+
+  // 选择保存目录
+  const selectSaveDirectory = async () => {
+    try {
+      // 检查是否支持 File System Access API
+      if (!('showDirectoryPicker' in window)) {
+        message.warning('您的浏览器不支持选择文件夹功能，将使用传统下载方式');
+        return;
+      }
+      
+      // 使用 showDirectoryPicker API 选择目录
+      const showDirectoryPicker = (window as any).showDirectoryPicker;
+      const directoryHandle = await showDirectoryPicker({
+        id: 'mindMapSaveDirectory',
+        mode: 'readwrite',
+        startIn: 'documents',
+      });
+      
+      // 保存目录句柄
+      setSaveDirectoryHandle(directoryHandle);
+      
+      // 显示目录名称
+      setSaveDirectoryPath(directoryHandle.name);
+      
+      message.success(`已选择保存路径: ${directoryHandle.name}`);
+      
+      // 将目录句柄保存到 localStorage (只保存名称，句柄无法序列化)
+      localStorage.setItem('mindMapSaveDirectoryName', directoryHandle.name);
+      
+      return directoryHandle;
+    } catch (error) {
+      console.error('选择保存目录时出错:', error);
+      message.error('选择保存目录失败');
+      return null;
+    }
+  };
+  
+  // 组件挂载时提示用户选择保存目录
+  useEffect(() => {
+    const initSaveDirectory = async () => {
+      // 检查是否支持 File System Access API
+      if (!('showDirectoryPicker' in window)) {
+        message.warning('您的浏览器不支持选择文件夹功能，将使用传统下载方式');
+        return;
+      }
+      
+      // 显示提示
+      Modal.confirm({
+        title: '选择保存路径',
+        content: '请选择一个文件夹作为思维导图的保存路径，后续保存和导出的文件将直接保存到该路径',
+        okText: '选择文件夹',
+        cancelText: '取消',
+        onOk: selectSaveDirectory,
+      });
+    };
+    
+    // 延迟执行，确保组件已完全挂载
+    const timer = setTimeout(initSaveDirectory, 1000);
+    return () => clearTimeout(timer);
+  }, []);
+
   return (
     <div style={{ width: '100vw', height: '100vh' }} onClick={handleClick}>
+      {/* 添加画布名称显示和编辑区域 - 移动到左上角 */}
+      <div style={{ 
+        position: 'absolute', 
+        top: 20, 
+        left: 20, 
+        zIndex: 10,
+        display: 'flex',
+        alignItems: 'center',
+        background: 'rgba(255, 255, 255, 0.8)',
+        padding: '4px 12px',
+        borderRadius: '4px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+      }}>
+        {isCanvasNameEditing ? (
+          <Input
+            value={currentCanvasName}
+            onChange={(e) => setCurrentCanvasName(e.target.value)}
+            onPressEnter={() => setIsCanvasNameEditing(false)}
+            onBlur={() => setIsCanvasNameEditing(false)}
+            autoFocus
+            style={{ width: '200px' }}
+          />
+        ) : (
+          <div 
+            style={{ 
+              fontSize: '16px', 
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              padding: '4px 8px',
+              borderRadius: '4px',
+              transition: 'all 0.3s',
+            }}
+            onClick={() => !isLocked && setIsCanvasNameEditing(true)}
+            onMouseEnter={(e) => {
+              if (!isLocked) {
+                e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.05)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
+          >
+            {currentCanvasName}
+            {!isLocked && (
+              <EditOutlined 
+                style={{ marginLeft: '8px', fontSize: '14px', opacity: 0.6 }} 
+              />
+            )}
+          </div>
+        )}
+      </div>
+
       <div style={{ position: 'absolute', top: 20, right: 20, zIndex: 1 }}>
         <Space direction="vertical" size="small" style={{ display: 'flex' }}>
           <Space>
+            <Tooltip 
+              title={isLocked ? "解锁画布" : "锁定画布"} 
+              mouseEnterDelay={0.5}
+              mouseLeaveDelay={0.1}
+              destroyTooltipOnHide
+              getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+            >
+              <Button
+                icon={isLocked ? <LockOutlined /> : <UnlockOutlined />}
+                onClick={() => setIsLocked(!isLocked)}
+                type={isLocked ? "primary" : "default"}
+              >
+                {isLocked ? "解锁" : "锁定"}
+              </Button>
+            </Tooltip>
+            <Tooltip 
+              title="新建画布" 
+              mouseEnterDelay={0.5}
+              mouseLeaveDelay={0.1}
+              destroyTooltipOnHide
+              getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+            >
+              <Button
+                icon={<FileAddOutlined />}
+                onClick={createNewCanvas}
+                disabled={isLocked}
+              >
+                新建
+              </Button>
+            </Tooltip>
+            <Tooltip 
+              title="历史画布" 
+              mouseEnterDelay={0.5}
+              mouseLeaveDelay={0.1}
+              destroyTooltipOnHide
+              getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+            >
+              <Dropdown
+                trigger={['click']}
+                disabled={canvasHistory.length === 0}
+                dropdownRender={() => (
+                  <div style={{
+                    backgroundColor: '#fff',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                    borderRadius: '4px',
+                    padding: '4px 0',
+                    minWidth: '200px',
+                  }}>
+                    {canvasHistory.length === 0 ? (
+                      <div style={{ padding: '8px 12px', color: '#999' }}>
+                        暂无历史画布
+                      </div>
+                    ) : (
+                      canvasHistory.map(canvas => (
+                        <div
+                          key={canvas.id}
+                          className="history-item"
+                          style={{
+                            padding: '8px 12px',
+                            cursor: 'pointer',
+                            transition: 'all 0.3s',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            borderBottom: '1px solid #f0f0f0',
+                            backgroundColor: currentCanvasId === canvas.id ? 'rgba(24, 144, 255, 0.1)' : 'transparent',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.05)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = currentCanvasId === canvas.id ? 'rgba(24, 144, 255, 0.1)' : 'transparent';
+                          }}
+                        >
+                          <div onClick={() => switchToCanvas(canvas)}>
+                            <div style={{ fontWeight: 'bold' }}>{canvas.name}</div>
+                            <div style={{ fontSize: '12px', color: '#999' }}>
+                              {new Date(canvas.createdAt).toLocaleString()}
+                            </div>
+                          </div>
+                          <div>
+                            <Button 
+                              type="text" 
+                              size="small" 
+                              icon={<EditOutlined />} 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                // 弹出对话框修改画布名称
+                                let tempName = canvas.name;
+                                Modal.confirm({
+                                  title: '修改画布名称',
+                                  content: (
+                                    <Input 
+                                      defaultValue={canvas.name} 
+                                      onChange={(e) => tempName = e.target.value}
+                                    />
+                                  ),
+                                  onOk: () => {
+                                    // 更新画布名称
+                                    setCanvasHistory(prev => 
+                                      prev.map(item => 
+                                        item.id === canvas.id 
+                                          ? { ...item, name: tempName } 
+                                          : item
+                                      )
+                                    );
+                                    // 如果是当前画布，也更新当前画布名称
+                                    if (currentCanvasId === canvas.id) {
+                                      setCurrentCanvasName(tempName);
+                                    }
+                                    message.success('画布名称已更新');
+                                  },
+                                  okText: '确认',
+                                  cancelText: '取消',
+                                });
+                              }}
+                            />
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              >
+                <Button icon={<HistoryOutlined />}>
+                  历史画布 ({canvasHistory.length})
+                </Button>
+              </Dropdown>
+            </Tooltip>
             <Button 
               icon={<PlusOutlined />} 
               onClick={() => handleAddNode(selectedNode?.id)}
+              disabled={isLocked}
             >
               {selectedNode ? '添加子节点' : '新增节点'}
             </Button>
-            <Tooltip title="撤销 (Ctrl+Z)">
+            <Tooltip 
+              title="撤销 (Ctrl+Z)" 
+              mouseEnterDelay={0.5}
+              mouseLeaveDelay={0.1}
+              destroyTooltipOnHide
+              getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+            >
               <Button 
                 icon={<UndoOutlined />} 
                 onClick={handleUndo}
-                disabled={history.currentIndex <= 0}
+                disabled={isLocked || history.currentIndex <= 0}
                 style={{ transition: 'all 0.2s' }}
               />
             </Tooltip>
-            <Tooltip title="重做 (Ctrl+Y)">
+            <Tooltip 
+              title="重做 (Ctrl+Y)" 
+              mouseEnterDelay={0.5}
+              mouseLeaveDelay={0.1}
+              destroyTooltipOnHide
+              getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+            >
               <Button 
                 icon={<RedoOutlined />} 
                 onClick={handleRedo}
-                disabled={history.currentIndex >= history.nodes.length - 1}
+                disabled={isLocked || history.currentIndex >= history.nodes.length - 1}
                 style={{ transition: 'all 0.2s' }}
               />
             </Tooltip>
-            <Button icon={<LayoutOutlined />} onClick={handleAutoLayout}>
-              自动布局
+            <Tooltip 
+              title="自动布局" 
+              mouseEnterDelay={0.5}
+              mouseLeaveDelay={0.1}
+              destroyTooltipOnHide
+              getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+            >
+              <Button
+                icon={<LayoutOutlined />}
+                onClick={handleAutoLayout}
+                disabled={isLocked || nodes.length === 0}
+              >
+                布局
+              </Button>
+            </Tooltip>
+            <Button 
+              icon={<SaveOutlined />} 
+              onClick={handleSave}
+              disabled={isLocked}
+            >
+              保存
             </Button>
-            <Button icon={<SaveOutlined />} onClick={handleSave}>保存</Button>
-            <Button icon={<UploadOutlined />} onClick={handleLoad} className="load-button">加载</Button>
-            <Tooltip title="导出为Markdown格式">
+            <Tooltip 
+              title="加载思维导图" 
+              mouseEnterDelay={0.5}
+              mouseLeaveDelay={0.1}
+              destroyTooltipOnHide
+              getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+            >
+              <Button
+                icon={<UploadOutlined />}
+                onClick={handleLoad}
+                disabled={isLocked || nodes.length > 0}
+                className="load-button"
+              >
+                加载
+              </Button>
+            </Tooltip>
+            <Tooltip 
+              title="导出为Markdown格式" 
+              mouseEnterDelay={0.5}
+              mouseLeaveDelay={0.1}
+              destroyTooltipOnHide
+              getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+            >
               <Button 
                 icon={<FileOutlined />} 
                 onClick={async () => {
                   try {
-                    // 获取当前思维导图数据
                     const mindMapData = getMindMapData();
-                    // 导出为Markdown
-                    const success = await saveToMarkdown(mindMapData);
+                    
+                    // 检查是否在非 HTTPS 环境
+                    const isNotSecure = window.location.protocol !== 'https:' && window.location.hostname !== 'localhost';
+                    
+                    // 如果没有选择保存目录且环境支持，提示用户选择
+                    if (!saveDirectoryHandle && 'showDirectoryPicker' in window && !isNotSecure) {
+                      const shouldSelect = await new Promise<boolean>((resolve) => {
+                        Modal.confirm({
+                          title: '选择保存路径',
+                          content: '您尚未选择保存路径，是否现在选择？',
+                          okText: '选择',
+                          cancelText: '取消',
+                          onOk: () => resolve(true),
+                          onCancel: () => resolve(false),
+                        });
+                      });
+                      
+                      if (shouldSelect) {
+                        await selectSaveDirectory();
+                      }
+                    }
+                    
+                    const success = await saveToMarkdown(mindMapData, currentCanvasName, saveDirectoryHandle);
+                    
                     if (success) {
-                      message.success('成功导出为Markdown格式');
+                      if (saveDirectoryHandle) {
+                        message.success(`Markdown文件已保存到 ${saveDirectoryPath} 目录`);
+                      } else if (isNotSecure) {
+                        message.success('成功导出为Markdown格式（使用传统下载方式）');
+                      } else {
+                        message.success('成功导出为Markdown格式');
+                      }
                     } else {
                       message.error('导出失败');
                     }
@@ -1733,11 +2226,18 @@ const MindMap: React.FC = () => {
                     message.error('导出失败');
                   }
                 }}
+                disabled={isLocked}
               >
                 导出MD
               </Button>
             </Tooltip>
-            <Tooltip title={autoSave ? "自动保存已开启" : "自动保存已关闭"}>
+            <Tooltip 
+              title={autoSave ? "自动保存已开启" : "自动保存已关闭"} 
+              mouseEnterDelay={0.5}
+              mouseLeaveDelay={0.1}
+              destroyTooltipOnHide
+              getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+            >
               <div style={{ display: 'flex', alignItems: 'center', marginLeft: '8px' }}>
                 <span style={{ marginRight: '8px', fontSize: '12px', color: '#666' }}>自动保存</span>
                 <Switch 
@@ -1745,6 +2245,7 @@ const MindMap: React.FC = () => {
                   onChange={setAutoSave} 
                   size="small"
                   style={{ background: autoSave ? '#1890ff' : '#bfbfbf' }}
+                  disabled={isLocked}
                 />
               </div>
             </Tooltip>
@@ -1755,6 +2256,7 @@ const MindMap: React.FC = () => {
               value={layoutDirection}
               style={{ width: 120 }} 
               onChange={(value) => setLayoutDirection(value)}
+              disabled={isLocked}
             >
               <Option value="LR">从左到右</Option>
               <Option value="RL">从右到左</Option>
@@ -1766,6 +2268,7 @@ const MindMap: React.FC = () => {
               value={nodeSpacing}
               style={{ width: 100 }}
               onChange={(value) => setNodeSpacing(Number(value))}
+              disabled={isLocked}
             >
               <Option value={50}>紧凑</Option>
               <Option value={100}>标准</Option>
@@ -1777,6 +2280,7 @@ const MindMap: React.FC = () => {
               value={rankSpacing}
               style={{ width: 100 }}
               onChange={(value) => setRankSpacing(Number(value))}
+              disabled={isLocked}
             >
               <Option value={80}>紧凑</Option>
               <Option value={150}>标准</Option>
@@ -1784,25 +2288,31 @@ const MindMap: React.FC = () => {
               <Option value={250}>超宽</Option>
             </Select>
           </Space>
+          
+          {/* 显示保存路径 */}
+          <Space>
+            <span>保存路径:</span>
+            <span style={{ 
+              backgroundColor: 'rgba(255, 255, 255, 0.8)', 
+              padding: '2px 8px', 
+              borderRadius: '4px',
+              maxWidth: '200px',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}>
+              {saveDirectoryPath}
+            </span>
+            <Button 
+              size="small" 
+              icon={<UploadOutlined />} 
+              onClick={selectSaveDirectory}
+              disabled={isLocked || !isDirectoryPickerSupported()}
+            >
+              选择路径
+            </Button>
+          </Space>
         </Space>
-      </div>
-
-      {/* 连接提示信息 */}
-      <div style={{ 
-        position: 'absolute', 
-        top: 20, 
-        left: 20, 
-        zIndex: 1,
-        background: 'rgba(255, 255, 255, 0.8)',
-        padding: '8px 12px',
-        borderRadius: '4px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-        fontSize: '12px',
-        color: '#666',
-      }}>
-        <div>连接节点：</div>
-        <div>1. 从节点的连接点拖动到另一个节点</div>
-        <div>2. 或选中一个节点，再点击另一个节点进行连接</div>
       </div>
 
       {contextMenu.visible && (
@@ -1835,24 +2345,24 @@ const MindMap: React.FC = () => {
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        onConnectStart={onConnectStart}
-        onConnectEnd={onConnectEnd}
-        onNodeClick={handleNodeClick}
-        onNodeDoubleClick={handleNodeDoubleClick}
-        onNodeContextMenu={handleContextMenu}
-        onPaneContextMenu={handlePaneContextMenu}
-        onPaneClick={() => setSelectedNode(null)}
-        onEdgeClick={onEdgeClick}
-        onEdgeDoubleClick={onEdgeDoubleClick}
+        onNodesChange={isLocked ? undefined : onNodesChange}
+        onEdgesChange={isLocked ? undefined : onEdgesChange}
+        onConnect={isLocked ? undefined : onConnect}
+        onConnectStart={isLocked ? undefined : onConnectStart}
+        onConnectEnd={isLocked ? undefined : onConnectEnd}
+        onNodeClick={isLocked ? undefined : handleNodeClick}
+        onNodeDoubleClick={isLocked ? undefined : handleNodeDoubleClick}
+        onNodeContextMenu={isLocked ? undefined : handleContextMenu}
+        onPaneContextMenu={isLocked ? undefined : handlePaneContextMenu}
+        onPaneClick={() => !isLocked && setSelectedNode(null)}
+        onEdgeClick={isLocked ? undefined : onEdgeClick}
+        onEdgeDoubleClick={isLocked ? undefined : onEdgeDoubleClick}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView
-        deleteKeyCode="Delete"
-        selectionKeyCode="Control"
-        multiSelectionKeyCode="Shift"
+        deleteKeyCode={isLocked ? null : "Delete"}
+        selectionKeyCode={isLocked ? null : "Control"}
+        multiSelectionKeyCode={isLocked ? null : "Shift"}
         defaultEdgeOptions={{
           type: 'custom',
           animated: false,
@@ -1869,17 +2379,28 @@ const MindMap: React.FC = () => {
         connectionLineType={ConnectionLineType.Bezier}
         snapToGrid={true}
         snapGrid={[10, 10]}
-        connectOnClick={true}
-        elementsSelectable={true}
-        nodesDraggable={true}
-        nodesConnectable={true}
+        connectOnClick={!isLocked}
+        elementsSelectable={!isLocked}
+        nodesDraggable={!isLocked}
+        nodesConnectable={!isLocked}
         zoomOnScroll={true}
         panOnScroll={true}
         panOnDrag={true}
         connectionMode={ConnectionMode.Loose}
       >
         <Background />
-        <Controls />
+        <Controls 
+          showInteractive={false}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+            padding: '8px',
+            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+            borderRadius: '8px',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+          }}
+        />
       </ReactFlow>
 
       <Modal

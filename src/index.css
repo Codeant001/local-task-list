@@ -351,3 +351,12 @@ code {
   border-radius: 4px;
   margin: 1em 0;
 }
+
+.history-item:hover {
+  background-color: #f5f5f5;
+}
+
+/* 隐藏 findDOMNode 警告 */
+.findDOMNode-warning {
+  display: none !important;
+}

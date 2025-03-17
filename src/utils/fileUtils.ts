@@ -1,19 +1,105 @@
 import { MindMapData } from '../types/MindMap';
 
-export const saveToFile = async (data: MindMapData) => {
+// 检查是否支持 File System Access API
+const isFileSystemAccessSupported = () => {
+  return 'showSaveFilePicker' in window;
+};
+
+// 检查是否支持目录访问 API
+const isDirectoryAccessSupported = () => {
+  return 'showDirectoryPicker' in window;
+};
+
+// 创建下载链接并触发下载
+const downloadFile = (content: string, fileName: string, contentType: string) => {
+  const blob = new Blob([content], { type: contentType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  return true;
+};
+
+// 使用目录句柄保存文件
+export const saveFileToDirectory = async (
+  directoryHandle: FileSystemDirectoryHandle,
+  fileName: string,
+  content: string,
+  contentType: string
+): Promise<boolean> => {
   try {
-    const handle = await window.showSaveFilePicker({
-      suggestedName: 'mindmap.json',
-      types: [{
-        description: 'JSON Files',
-        accept: { 'application/json': ['.json'] },
-      }],
-    });
+    // 创建文件
+    const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
     
-    const writable = await handle.createWritable();
-    await writable.write(JSON.stringify(data, null, 2));
+    // 创建可写流
+    const writable = await fileHandle.createWritable();
+    
+    // 写入内容
+    if (contentType === 'application/json') {
+      await writable.write(content);
+    } else {
+      const blob = new Blob([content], { type: contentType });
+      await writable.write(blob);
+    }
+    
+    // 关闭流
     await writable.close();
+    
     return true;
+  } catch (error) {
+    console.error('保存文件到目录时出错:', error);
+    return false;
+  }
+};
+
+export const saveToFile = async (
+  data: MindMapData, 
+  canvasName: string = '思维导图',
+  directoryHandle?: FileSystemDirectoryHandle | null
+) => {
+  try {
+    // 处理文件名，移除不合法字符
+    const safeFileName = canvasName.replace(/[\\/:*?"<>|]/g, '_');
+    const fileName = `${safeFileName}.json`;
+    const content = JSON.stringify(data, null, 2);
+    
+    // 如果提供了目录句柄，直接保存到该目录
+    if (directoryHandle && isDirectoryAccessSupported()) {
+      return await saveFileToDirectory(
+        directoryHandle,
+        fileName,
+        content,
+        'application/json'
+      );
+    }
+    
+    // 检查是否支持 File System Access API
+    if (isFileSystemAccessSupported()) {
+      // 使用现代 File System Access API
+      const handle = await window.showSaveFilePicker({
+        suggestedName: fileName,
+        types: [{
+          description: 'JSON Files',
+          accept: { 'application/json': ['.json'] },
+        }],
+      });
+      
+      const writable = await handle.createWritable();
+      await writable.write(content);
+      await writable.close();
+      return true;
+    } else {
+      // 使用传统下载方法
+      return downloadFile(
+        content,
+        fileName,
+        'application/json'
+      );
+    }
   } catch (error) {
     console.error('Error saving file:', error);
     return false;
@@ -179,27 +265,56 @@ export const convertToMarkdown = (data: MindMapData): string => {
 };
 
 // 保存Markdown文件
-export const saveToMarkdown = async (data: MindMapData): Promise<boolean> => {
+export const saveToMarkdown = async (
+  data: MindMapData, 
+  canvasName: string = '思维导图',
+  directoryHandle?: FileSystemDirectoryHandle | null
+): Promise<boolean> => {
   try {
     const markdown = convertToMarkdown(data);
     
-    // 创建Blob对象
-    const blob = new Blob([markdown], { type: 'text/markdown' });
+    // 处理文件名，移除不合法字符
+    const safeFileName = canvasName.replace(/[\\/:*?"<>|]/g, '_');
+    const fileName = `${safeFileName}.md`;
     
-    // 使用文件选择器保存文件
-    const handle = await window.showSaveFilePicker({
-      suggestedName: 'mindmap.md',
-      types: [{
-        description: 'Markdown Files',
-        accept: { 'text/markdown': ['.md'] },
-      }],
-    });
+    // 如果提供了目录句柄，直接保存到该目录
+    if (directoryHandle && isDirectoryAccessSupported()) {
+      return await saveFileToDirectory(
+        directoryHandle,
+        fileName,
+        markdown,
+        'text/markdown'
+      );
+    }
     
-    const writable = await handle.createWritable();
-    await writable.write(blob);
-    await writable.close();
-    
-    return true;
+    // 检查是否支持 File System Access API
+    if (isFileSystemAccessSupported()) {
+      // 使用现代 File System Access API
+      // 创建Blob对象
+      const blob = new Blob([markdown], { type: 'text/markdown' });
+      
+      // 使用文件选择器保存文件
+      const handle = await window.showSaveFilePicker({
+        suggestedName: fileName,
+        types: [{
+          description: 'Markdown Files',
+          accept: { 'text/markdown': ['.md'] },
+        }],
+      });
+      
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      
+      return true;
+    } else {
+      // 使用传统下载方法
+      return downloadFile(
+        markdown,
+        fileName,
+        'text/markdown'
+      );
+    }
   } catch (error) {
     console.error('保存Markdown文件时出错:', error);
     return false;

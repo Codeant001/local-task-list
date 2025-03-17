@@ -8,6 +8,7 @@ interface CustomNodeProps {
   data: {
     label: string;
     nodeData: MindMapNode;
+    isLocked?: boolean;
   };
   selected?: boolean;
   id: string;
@@ -29,7 +30,7 @@ const extractTextFromHtml = (html: string): string => {
 };
 
 const CustomNode: React.FC<CustomNodeProps> = ({ data, selected }) => {
-  const { nodeData } = data;
+  const { nodeData, isLocked } = data;
   const startDate = nodeData.start_date ? new Date(nodeData.start_date) : null;
   const dueDate = nodeData.due_date ? new Date(nodeData.due_date) : null;
   
@@ -105,17 +106,17 @@ const CustomNode: React.FC<CustomNodeProps> = ({ data, selected }) => {
   return (
     <div
       style={{
-        padding: '8px 12px',
+        padding: '6px 8px',
         borderRadius: '4px',
         background: 'white',
         border: `${selected ? '2px' : '1px'} solid ${selected ? '#1890ff' : '#ddd'}`,
         boxShadow: selected 
           ? '0 0 8px rgba(24, 144, 255, 0.5), 0 2px 4px rgba(0, 0, 0, 0.1)' 
           : '0 1px 3px rgba(0, 0, 0, 0.1)',
-        minWidth: '120px',
-        maxWidth: '200px',
-        transform: selected ? 'scale(1.02) translateY(-1px)' : 'scale(1)',
-        transition: 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
+        width: '112px',
+        height: 'auto',
+        transform: 'scale(1)',
+        transition: 'border 0.3s, box-shadow 0.3s',
       }}
     >
       {/* 顶部连接点 */}
@@ -124,14 +125,14 @@ const CustomNode: React.FC<CustomNodeProps> = ({ data, selected }) => {
         position={Position.Top}
         id="top"
         style={handleStyle}
-        isConnectable={true}
+        isConnectable={!isLocked}
       />
       <Handle
         type="target"
         position={Position.Top}
         id="top"
         style={handleStyle}
-        isConnectable={true}
+        isConnectable={!isLocked}
       />
       
       {/* 左侧连接点 */}
@@ -140,14 +141,14 @@ const CustomNode: React.FC<CustomNodeProps> = ({ data, selected }) => {
         position={Position.Left}
         id="left"
         style={handleStyle}
-        isConnectable={true}
+        isConnectable={!isLocked}
       />
       <Handle
         type="target"
         position={Position.Left}
         id="left"
         style={handleStyle}
-        isConnectable={true}
+        isConnectable={!isLocked}
       />
       
       {/* 右侧连接点 */}
@@ -156,14 +157,14 @@ const CustomNode: React.FC<CustomNodeProps> = ({ data, selected }) => {
         position={Position.Right}
         id="right"
         style={handleStyle}
-        isConnectable={true}
+        isConnectable={!isLocked}
       />
       <Handle
         type="target"
         position={Position.Right}
         id="right"
         style={handleStyle}
-        isConnectable={true}
+        isConnectable={!isLocked}
       />
       
       {/* 底部连接点 */}
@@ -172,26 +173,27 @@ const CustomNode: React.FC<CustomNodeProps> = ({ data, selected }) => {
         position={Position.Bottom}
         id="bottom"
         style={handleStyle}
-        isConnectable={true}
+        isConnectable={!isLocked}
       />
       <Handle
         type="target"
         position={Position.Bottom}
         id="bottom"
         style={handleStyle}
-        isConnectable={true}
+        isConnectable={!isLocked}
       />
       
       <div
         style={{
           fontWeight: 'bold',
-          marginBottom: '4px',
+          marginBottom: '2px',
           color: selected ? '#1890ff' : '#333',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           transition: 'color 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
           textAlign: 'center',
+          fontSize: '11px',
         }}
         title={nodeData.title}
       >
@@ -202,9 +204,9 @@ const CustomNode: React.FC<CustomNodeProps> = ({ data, selected }) => {
       {descriptionSummary && (
         <div
           style={{
-            fontSize: '12px',
+            fontSize: '9px',
             color: '#666',
-            marginBottom: '4px',
+            marginBottom: '2px',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -216,13 +218,19 @@ const CustomNode: React.FC<CustomNodeProps> = ({ data, selected }) => {
         </div>
       )}
       
-      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '3px', flexWrap: 'wrap' }}>
         {nodeData.priority && (
-          <Tooltip title={`优先级: ${nodeData.priority === 'high' ? '高' : nodeData.priority === 'medium' ? '中' : '低'}`}>
+          <Tooltip 
+            title={`优先级: ${nodeData.priority === 'high' ? '高' : nodeData.priority === 'medium' ? '中' : '低'}`} 
+            mouseEnterDelay={0.5} 
+            mouseLeaveDelay={0.1} 
+            destroyTooltipOnHide
+            getPopupContainer={() => document.body}
+          >
             <div
               style={{
-                width: '8px',
-                height: '8px',
+                width: '6px',
+                height: '6px',
                 borderRadius: '50%',
                 background: getPriorityColor(),
               }}
@@ -231,11 +239,17 @@ const CustomNode: React.FC<CustomNodeProps> = ({ data, selected }) => {
         )}
         
         {nodeData.status && (
-          <Tooltip title={`状态: ${nodeData.status === 'done' ? '已完成' : nodeData.status === 'in_progress' ? '进行中' : '待办'}`}>
+          <Tooltip 
+            title={`状态: ${nodeData.status === 'done' ? '已完成' : nodeData.status === 'in_progress' ? '进行中' : '待办'}`} 
+            mouseEnterDelay={0.5} 
+            mouseLeaveDelay={0.1} 
+            destroyTooltipOnHide
+            getPopupContainer={() => document.body}
+          >
             <div
               style={{
-                width: '8px',
-                height: '8px',
+                width: '6px',
+                height: '6px',
                 borderRadius: '50%',
                 background: getStatusColor(),
               }}
@@ -245,20 +259,32 @@ const CustomNode: React.FC<CustomNodeProps> = ({ data, selected }) => {
         
         <div
           style={{
-            fontSize: '10px',
+            fontSize: '8px',
             color: selected ? '#1890ff' : '#999',
             marginLeft: 'auto',
             transition: 'color 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
           }}
         >
           {startDate && (
-            <Tooltip title={`开始日期: ${nodeData.start_date}`}>
+            <Tooltip 
+              title={`开始日期: ${nodeData.start_date}`} 
+              mouseEnterDelay={0.5} 
+              mouseLeaveDelay={0.1} 
+              destroyTooltipOnHide
+              getPopupContainer={() => document.body}
+            >
               <span>{formatDate(startDate)}</span>
             </Tooltip>
           )}
           {startDate && dueDate && <span> - </span>}
           {dueDate && (
-            <Tooltip title={`截止日期: ${nodeData.due_date}`}>
+            <Tooltip 
+              title={`截止日期: ${nodeData.due_date}`} 
+              mouseEnterDelay={0.5} 
+              mouseLeaveDelay={0.1} 
+              destroyTooltipOnHide
+              getPopupContainer={() => document.body}
+            >
               <span
                 style={{
                   color: dueDateStatus === 'overdue' ? '#f5222d' : 
