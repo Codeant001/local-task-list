@@ -26,7 +26,7 @@ import ReactFlow, {
 } from 'reactflow';
 import dagre from 'dagre';
 import 'reactflow/dist/style.css';
-import { Button, Space, Modal, Form, Input, Select, Tooltip, Divider, message, Switch, Dropdown } from 'antd';
+import { Button, Space, Modal, Form, Input, Select, Tooltip, Divider, message, Switch, Dropdown, Drawer } from 'antd';
 import { 
   PlusOutlined, 
   LayoutOutlined, 
@@ -41,6 +41,8 @@ import {
   HistoryOutlined,
   LockOutlined,
   UnlockOutlined,
+  SettingOutlined,
+  FolderOutlined,
 } from '@ant-design/icons';
 import { MindMapData, MindMapNode, MindMapTheme } from '../types/MindMap';
 import { saveToFile, loadFromFile, saveToMarkdown } from '../utils/fileUtils';
@@ -498,6 +500,10 @@ const MindMap: React.FC = () => {
   const [layoutDirection, setLayoutDirection] = useState(LAYOUT_DIRECTION);
   const [nodeSpacing, setNodeSpacing] = useState(100); // 节点间距
   const [rankSpacing, setRankSpacing] = useState(150); // 层级间距
+  
+  // 抽屉状态
+  const [drawerVisible, setDrawerVisible] = useState(false);
+  
   const [saveDirectoryHandle, setSaveDirectoryHandle] = useState<any>(null);
   const [saveDirectoryPath, setSaveDirectoryPath] = useState<string>('未选择保存路径');
   const [contextMenu, setContextMenu] = useState<{
@@ -759,10 +765,10 @@ const MindMap: React.FC = () => {
     const isHorizontal = layoutDirection === 'LR' || layoutDirection === 'RL';
     dagreGraph.setGraph({ 
       rankdir: layoutDirection,
-      nodesep: isHorizontal ? nodeSpacing * 0.7 : nodeSpacing * 0.35, // 节点之间的水平间距
-      ranksep: isHorizontal ? rankSpacing * 0.7 : rankSpacing * 0.5, // 层级之间的垂直间距
-      marginx: 35, // 图的水平边距
-      marginy: 35, // 图的垂直边距
+      nodesep: isHorizontal ? nodeSpacing * 1.2 : nodeSpacing * 0.6, // 增加节点之间的水平间距
+      ranksep: isHorizontal ? rankSpacing * 1.0 : rankSpacing * 0.7, // 增加层级之间的垂直间距
+      marginx: 50, // 增加图的水平边距
+      marginy: 50, // 增加图的垂直边距
       align: 'DL', // 对齐方式：DL=向下和向左
       acyclicer: 'greedy', // 处理循环依赖
       ranker: 'network-simplex', // 布局算法
@@ -771,8 +777,8 @@ const MindMap: React.FC = () => {
     // 添加节点
     nodesWithOriginalPositions.forEach((node) => {
       dagreGraph.setNode(node.id, { 
-        width: NODE_WIDTH, 
-        height: NODE_HEIGHT,
+        width: NODE_WIDTH + 20, // 增加节点宽度以防止重叠
+        height: NODE_HEIGHT + 10, // 增加节点高度以防止重叠
       });
     });
 
@@ -780,7 +786,7 @@ const MindMap: React.FC = () => {
     edges.forEach((edge) => {
       dagreGraph.setEdge(edge.source, edge.target, {
         weight: 1, // 边的权重
-        minlen: 1, // 最小长度
+        minlen: 1.2, // 增加最小长度，使节点之间有更多空间
       });
     });
 
@@ -806,22 +812,37 @@ const MindMap: React.FC = () => {
         const sourceEdges = edges.filter(e => e.source === node.id);
         const targetEdges = edges.filter(e => e.target === node.id);
         
-        // 如果节点有多个子节点，稍微向下偏移以避免连线重叠
+        // 如果节点有多个子节点，增加偏移以避免连线重叠
         if (sourceEdges.length > 2) {
-          yOffset = 10;
+          yOffset = isHorizontal ? 15 : 0;
+          xOffset = isHorizontal ? 0 : 15;
         }
         
-        // 如果节点是多个节点的目标，稍微向上偏移
+        // 如果节点是多个节点的目标，增加偏移
         if (targetEdges.length > 2) {
-          yOffset = -10;
+          yOffset = isHorizontal ? -15 : 0;
+          xOffset = isHorizontal ? 0 : -15;
+        }
+        
+        // 如果同时有多个源和目标，调整偏移量
+        if (sourceEdges.length > 1 && targetEdges.length > 1) {
+          if (isHorizontal) {
+            yOffset = sourceEdges.length > targetEdges.length ? 20 : -20;
+          } else {
+            xOffset = sourceEdges.length > targetEdges.length ? 20 : -20;
+          }
         }
       }
+      
+      // 计算新位置
+      const newX = nodeWithPosition.x - NODE_WIDTH / 2 + xOffset;
+      const newY = nodeWithPosition.y - NODE_HEIGHT / 2 + yOffset;
       
       return {
         ...node,
         position: {
-          x: nodeWithPosition.x - NODE_WIDTH / 2 + xOffset,
-          y: nodeWithPosition.y - NODE_HEIGHT / 2 + yOffset,
+          x: newX,
+          y: newY,
         },
         style: {
           ...node.style,
@@ -830,11 +851,121 @@ const MindMap: React.FC = () => {
       };
     });
     
-    setNodes(layoutedNodes);
+    // 检测并解决节点重叠问题
+    const resolveOverlaps = (nodes: FlowNode[]) => {
+      const nodePositions = new Map<string, {x: number, y: number, width: number, height: number}>();
+      
+      // 记录所有节点的位置和大小
+      nodes.forEach(node => {
+        nodePositions.set(node.id, {
+          x: node.position.x,
+          y: node.position.y,
+          width: NODE_WIDTH,
+          height: NODE_HEIGHT
+        });
+      });
+      
+      // 检测重叠并调整位置
+      const adjustedNodes = [...nodes];
+      let hasOverlap = true;
+      let iterations = 0;
+      const maxIterations = 3; // 限制迭代次数
+      
+      while (hasOverlap && iterations < maxIterations) {
+        hasOverlap = false;
+        iterations++;
+        
+        for (let i = 0; i < adjustedNodes.length; i++) {
+          const nodeA = adjustedNodes[i];
+          const posA = nodePositions.get(nodeA.id)!;
+          
+          for (let j = i + 1; j < adjustedNodes.length; j++) {
+            const nodeB = adjustedNodes[j];
+            const posB = nodePositions.get(nodeB.id)!;
+            
+            // 检测两个节点是否重叠
+            const overlapX = Math.abs(posA.x - posB.x) < (posA.width + posB.width) / 2 - 5;
+            const overlapY = Math.abs(posA.y - posB.y) < (posA.height + posB.height) / 2 - 5;
+            
+            if (overlapX && overlapY) {
+              hasOverlap = true;
+              
+              // 计算需要移动的距离
+              const moveX = ((posA.width + posB.width) / 2 + 10) - Math.abs(posA.x - posB.x);
+              const moveY = ((posA.height + posB.height) / 2 + 10) - Math.abs(posA.y - posB.y);
+              
+              // 选择移动距离较小的方向
+              if (moveX < moveY) {
+                // 水平方向移动
+                const direction = posA.x < posB.x ? -1 : 1;
+                adjustedNodes[i] = {
+                  ...nodeA,
+                  position: {
+                    ...nodeA.position,
+                    x: nodeA.position.x + direction * moveX / 2
+                  }
+                };
+                adjustedNodes[j] = {
+                  ...nodeB,
+                  position: {
+                    ...nodeB.position,
+                    x: nodeB.position.x - direction * moveX / 2
+                  }
+                };
+                
+                // 更新位置记录
+                nodePositions.set(nodeA.id, {
+                  ...posA,
+                  x: posA.x + direction * moveX / 2
+                });
+                nodePositions.set(nodeB.id, {
+                  ...posB,
+                  x: posB.x - direction * moveX / 2
+                });
+              } else {
+                // 垂直方向移动
+                const direction = posA.y < posB.y ? -1 : 1;
+                adjustedNodes[i] = {
+                  ...nodeA,
+                  position: {
+                    ...nodeA.position,
+                    y: nodeA.position.y + direction * moveY / 2
+                  }
+                };
+                adjustedNodes[j] = {
+                  ...nodeB,
+                  position: {
+                    ...nodeB.position,
+                    y: nodeB.position.y - direction * moveY / 2
+                  }
+                };
+                
+                // 更新位置记录
+                nodePositions.set(nodeA.id, {
+                  ...posA,
+                  y: posA.y + direction * moveY / 2
+                });
+                nodePositions.set(nodeB.id, {
+                  ...posB,
+                  y: posB.y - direction * moveY / 2
+                });
+              }
+            }
+          }
+        }
+      }
+      
+      return adjustedNodes;
+    };
+    
+    // 应用重叠解决算法
+    const finalNodes = resolveOverlaps(layoutedNodes);
+    
+    setNodes(finalNodes);
     
     // 使用 fitView 确保所有节点都在视图中
     setTimeout(() => {
-      reactFlowInstance.fitView({ padding: 0.2, duration: 800 });
+      reactFlowInstance.fitView({ padding: 0.3, duration: 800 });
     }, 50);
   }, [nodes, edges, setNodes, reactFlowInstance, layoutDirection, nodeSpacing, rankSpacing]);
 
@@ -1029,9 +1160,15 @@ const MindMap: React.FC = () => {
     }
   };
 
+  // 添加连接成功的标志变量
+  const connectionSuccessfulRef = useRef(false);
+
   // 处理连接事件
   const onConnect = useCallback((params: Connection) => {
     console.log('连接参数:', params); // 调试信息
+    
+    // 设置连接成功标志
+    connectionSuccessfulRef.current = true;
     
     // 检查是否已存在完全相同的连接（相同的源节点和目标节点以及相同的连接点）
     const existingEdge = edges.find(
@@ -1134,6 +1271,8 @@ const MindMap: React.FC = () => {
         setSelectedNode(node);
         // 保存连接的起始方向
         connectingHandleRef.current = handleId || null;
+        // 重置连接成功标志
+        connectionSuccessfulRef.current = false;
         console.log('连接开始，方向:', handleId); // 调试信息
       }
     },
@@ -1145,16 +1284,22 @@ const MindMap: React.FC = () => {
     (event) => {
       if (!event || !('clientX' in event) || !('clientY' in event)) return;
       
+      // 检查连接是否成功
+      if (connectionSuccessfulRef.current) {
+        console.log('连接成功，不创建新节点');
+        // 清空连接起始方向
+        connectingHandleRef.current = null;
+        // 重置连接成功标志
+        connectionSuccessfulRef.current = false;
+        return;
+      }
+      
       // 检查目标是否为画布（空白区域）
       const targetIsPane = (event.target as Element)?.classList?.contains('react-flow__pane');
       
-      // 检查目标是否为节点或节点的连接点
-      const targetIsNode = (event.target as Element)?.closest('.react-flow__node');
-      const targetIsHandle = (event.target as Element)?.closest('.react-flow__handle');
-      
-      // 只有在拖动到空白区域且不是节点或连接点时才创建新节点
-      // 如果目标是节点或连接点，说明已经成功连线，不需要创建新节点
-      if (targetIsPane && !targetIsNode && !targetIsHandle && selectedNode) {
+      // 只有在拖动到空白区域且连接失败时才创建新节点
+      if (targetIsPane && selectedNode) {
+        console.log('连接失败，创建新节点');
         const position = reactFlowInstance.screenToFlowPosition({
           x: event.clientX,
           y: event.clientY,
@@ -1166,6 +1311,9 @@ const MindMap: React.FC = () => {
         
         if (!sourceHandleId) {
           console.log('没有有效的连接点，不创建新节点');
+          // 重置连接成功标志
+          connectionSuccessfulRef.current = false;
+          connectingHandleRef.current = null;
           return; // 如果没有有效的连接点，不创建新节点
         }
         
@@ -1204,6 +1352,9 @@ const MindMap: React.FC = () => {
           targetHandleId = 'right';
         } else {
           console.log('未知的连接点:', sourceHandleId);
+          // 重置连接标志
+          connectionSuccessfulRef.current = false;
+          connectingHandleRef.current = null;
           return; // 如果没有有效的连接点，不创建新节点
         }
         
@@ -1247,10 +1398,16 @@ const MindMap: React.FC = () => {
         newNodeRef.current = newNode;
         setSelectedNode(newNode);
         
+        // 重置连接标志
+        connectionSuccessfulRef.current = false;
+        connectingHandleRef.current = null;
+        
         // 不再弹出编辑界面，保持与新增节点行为一致
+      } else {
+        // 如果不是拖到空白区域或没有选中节点，也要重置标志
+        connectionSuccessfulRef.current = false;
+        connectingHandleRef.current = null;
       }
-      // 重置连接起始方向
-      connectingHandleRef.current = null;
     },
     [selectedNode, reactFlowInstance, setNodes, setEdges]
   );
@@ -1360,10 +1517,45 @@ const MindMap: React.FC = () => {
       if (parentNode) {
         const HORIZONTAL_OFFSET = NODE_WIDTH * 1.5;
         
+        // 初始位置
         newNodePosition = {
           x: parentNode.position.x + HORIZONTAL_OFFSET,
           y: parentNode.position.y,
         };
+        
+        // 检查是否与现有节点重叠
+        const isOverlapping = (pos: {x: number, y: number}) => {
+          return nodes.some(node => {
+            const dx = Math.abs(node.position.x - pos.x);
+            const dy = Math.abs(node.position.y - pos.y);
+            return dx < NODE_WIDTH && dy < NODE_HEIGHT;
+          });
+        };
+        
+        // 如果重叠，尝试找到一个不重叠的位置
+        if (isOverlapping(newNodePosition)) {
+          // 尝试不同的位置偏移
+          const offsets = [
+            { x: 0, y: NODE_HEIGHT * 1.2 },  // 下方
+            { x: 0, y: -NODE_HEIGHT * 1.2 }, // 上方
+            { x: NODE_WIDTH * 0.5, y: NODE_HEIGHT * 0.8 },  // 右下
+            { x: NODE_WIDTH * 0.5, y: -NODE_HEIGHT * 0.8 }, // 右上
+            { x: NODE_WIDTH * 0.8, y: 0 },   // 更远的右侧
+          ];
+          
+          // 尝试每个偏移位置，直到找到不重叠的位置
+          for (const offset of offsets) {
+            const testPosition = {
+              x: parentNode.position.x + HORIZONTAL_OFFSET + offset.x,
+              y: parentNode.position.y + offset.y
+            };
+            
+            if (!isOverlapping(testPosition)) {
+              newNodePosition = testPosition;
+              break;
+            }
+          }
+        }
         
         const newEdge: Edge = {
           id: `edge-${Date.now()}`,
@@ -2083,349 +2275,471 @@ const MindMap: React.FC = () => {
 
       <div style={{ position: 'absolute', top: 20, right: 20, zIndex: 1 }}>
         <Space direction="vertical" size="small" style={{ display: 'flex' }}>
-          <Space>
-            <Tooltip 
-              title={isLocked ? "解锁画布" : "锁定画布"} 
-              mouseEnterDelay={0.5}
-              mouseLeaveDelay={0.1}
-              destroyTooltipOnHide
-              getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
-            >
-              <Button
-                icon={isLocked ? <LockOutlined /> : <UnlockOutlined />}
-                onClick={() => setIsLocked(!isLocked)}
-                type={isLocked ? "primary" : "default"}
+          <div style={{ 
+            display: 'flex', 
+            flexWrap: 'wrap', 
+            gap: '8px', 
+            justifyContent: 'flex-end',
+            background: 'rgba(255, 255, 255, 0.9)',
+            padding: '8px',
+            borderRadius: '8px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+          }}>
+            {/* 画布控制组 */}
+            <Space.Compact>
+              <Tooltip 
+                title={isLocked ? "解锁画布" : "锁定画布"} 
+                mouseEnterDelay={0.5}
+                mouseLeaveDelay={0.1}
+                destroyTooltipOnHide
+                getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
               >
-                {isLocked ? "解锁" : "锁定"}
-              </Button>
-            </Tooltip>
-            <Tooltip 
-              title="新建画布" 
-              mouseEnterDelay={0.5}
-              mouseLeaveDelay={0.1}
-              destroyTooltipOnHide
-              getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
-            >
-              <Button
-                icon={<FileAddOutlined />}
-                onClick={createNewCanvas}
-                disabled={isLocked}
+                <Button
+                  icon={isLocked ? <LockOutlined /> : <UnlockOutlined />}
+                  onClick={() => setIsLocked(!isLocked)}
+                  type={isLocked ? "primary" : "default"}
+                >
+                  {isLocked ? "解锁" : "锁定"}
+                </Button>
+              </Tooltip>
+              <Tooltip 
+                title="新建画布" 
+                mouseEnterDelay={0.5}
+                mouseLeaveDelay={0.1}
+                destroyTooltipOnHide
+                getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
               >
-                新建
-              </Button>
-            </Tooltip>
-            <Tooltip 
-              title="历史画布" 
-              mouseEnterDelay={0.5}
-              mouseLeaveDelay={0.1}
-              destroyTooltipOnHide
-              getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
-            >
-              <Dropdown
-                trigger={['click']}
-                disabled={canvasHistory.length === 0}
-                dropdownRender={() => (
-                  <div style={{
-                    backgroundColor: '#fff',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                    borderRadius: '4px',
-                    padding: '4px 0',
-                    minWidth: '200px',
-                  }}>
-                    {canvasHistory.length === 0 ? (
-                      <div style={{ padding: '8px 12px', color: '#999' }}>
-                        暂无历史画布
-                      </div>
-                    ) : (
-                      canvasHistory.map(canvas => (
-                        <div
-                          key={canvas.id}
-                          className="history-item"
-                          style={{
-                            padding: '8px 12px',
-                            cursor: 'pointer',
-                            transition: 'all 0.3s',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            borderBottom: '1px solid #f0f0f0',
-                            backgroundColor: currentCanvasId === canvas.id ? 'rgba(24, 144, 255, 0.1)' : 'transparent',
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.05)';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.backgroundColor = currentCanvasId === canvas.id ? 'rgba(24, 144, 255, 0.1)' : 'transparent';
-                          }}
-                        >
-                          <div onClick={() => switchToCanvas(canvas)}>
-                            <div style={{ fontWeight: 'bold' }}>{canvas.name}</div>
-                            <div style={{ fontSize: '12px', color: '#999' }}>
-                              {new Date(canvas.createdAt).toLocaleString()}
+                <Button
+                  icon={<FileAddOutlined />}
+                  onClick={createNewCanvas}
+                  disabled={isLocked}
+                >
+                  新建
+                </Button>
+              </Tooltip>
+              <Tooltip 
+                title="历史画布" 
+                mouseEnterDelay={0.5}
+                mouseLeaveDelay={0.1}
+                destroyTooltipOnHide
+                getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+              >
+                <Dropdown
+                  trigger={['click']}
+                  disabled={canvasHistory.length === 0}
+                  dropdownRender={() => (
+                    <div style={{
+                      backgroundColor: '#fff',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                      borderRadius: '4px',
+                      padding: '4px 0',
+                      minWidth: '200px',
+                    }}>
+                      {canvasHistory.length === 0 ? (
+                        <div style={{ padding: '8px 12px', color: '#999' }}>
+                          暂无历史画布
+                        </div>
+                      ) : (
+                        canvasHistory.map(canvas => (
+                          <div
+                            key={canvas.id}
+                            className="history-item"
+                            style={{
+                              padding: '8px 12px',
+                              cursor: 'pointer',
+                              transition: 'all 0.3s',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              borderBottom: '1px solid #f0f0f0',
+                              backgroundColor: currentCanvasId === canvas.id ? 'rgba(24, 144, 255, 0.1)' : 'transparent',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.05)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = currentCanvasId === canvas.id ? 'rgba(24, 144, 255, 0.1)' : 'transparent';
+                            }}
+                          >
+                            <div onClick={() => switchToCanvas(canvas)}>
+                              <div style={{ fontWeight: 'bold' }}>{canvas.name}</div>
+                              <div style={{ fontSize: '12px', color: '#999' }}>
+                                {new Date(canvas.createdAt).toLocaleString()}
+                              </div>
+                            </div>
+                            <div>
+                              <Button 
+                                type="text" 
+                                size="small" 
+                                icon={<EditOutlined />} 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  // 弹出对话框修改画布名称
+                                  let tempName = canvas.name;
+                                  Modal.confirm({
+                                    title: '修改画布名称',
+                                    content: (
+                                      <Input 
+                                        defaultValue={canvas.name} 
+                                        onChange={(e) => tempName = e.target.value}
+                                      />
+                                    ),
+                                    onOk: () => {
+                                      // 更新画布名称
+                                      setCanvasHistory(prev => 
+                                        prev.map(item => 
+                                          item.id === canvas.id 
+                                            ? { ...item, name: tempName } 
+                                            : item
+                                        )
+                                      );
+                                      // 如果是当前画布，也更新当前画布名称
+                                      if (currentCanvasId === canvas.id) {
+                                        setCurrentCanvasName(tempName);
+                                      }
+                                      message.success('画布名称已更新');
+                                    },
+                                    okText: '确认',
+                                    cancelText: '取消',
+                                  });
+                                }}
+                              />
                             </div>
                           </div>
-                          <div>
-                            <Button 
-                              type="text" 
-                              size="small" 
-                              icon={<EditOutlined />} 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                // 弹出对话框修改画布名称
-                                let tempName = canvas.name;
-                                Modal.confirm({
-                                  title: '修改画布名称',
-                                  content: (
-                                    <Input 
-                                      defaultValue={canvas.name} 
-                                      onChange={(e) => tempName = e.target.value}
-                                    />
-                                  ),
-                                  onOk: () => {
-                                    // 更新画布名称
-                                    setCanvasHistory(prev => 
-                                      prev.map(item => 
-                                        item.id === canvas.id 
-                                          ? { ...item, name: tempName } 
-                                          : item
-                                      )
-                                    );
-                                    // 如果是当前画布，也更新当前画布名称
-                                    if (currentCanvasId === canvas.id) {
-                                      setCurrentCanvasName(tempName);
-                                    }
-                                    message.success('画布名称已更新');
-                                  },
-                                  okText: '确认',
-                                  cancelText: '取消',
-                                });
-                              }}
-                            />
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
+                        ))
+                      )}
+                    </div>
+                  )}
+                >
+                  <Button icon={<HistoryOutlined />}>
+                    历史 ({canvasHistory.length})
+                  </Button>
+                </Dropdown>
+              </Tooltip>
+            </Space.Compact>
+
+            {/* 节点操作组 */}
+            <Space.Compact>
+              <Button 
+                icon={<PlusOutlined />} 
+                onClick={() => handleAddNode(selectedNode?.id)}
+                disabled={isLocked}
+                type={selectedNode ? "primary" : "default"}
               >
-                <Button icon={<HistoryOutlined />}>
-                  历史画布 ({canvasHistory.length})
+                {selectedNode ? '添加子节点' : '新增节点'}
+              </Button>
+            </Space.Compact>
+
+            {/* 编辑操作组 */}
+            <Space.Compact>
+              <Tooltip 
+                title="撤销 (Ctrl+Z)" 
+                mouseEnterDelay={0.5}
+                mouseLeaveDelay={0.1}
+                destroyTooltipOnHide
+                getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+              >
+                <Button 
+                  icon={<UndoOutlined />} 
+                  onClick={handleUndo}
+                  disabled={isLocked || history.currentIndex <= 0}
+                  style={{ transition: 'all 0.2s' }}
+                />
+              </Tooltip>
+              <Tooltip 
+                title="重做 (Ctrl+Y)" 
+                mouseEnterDelay={0.5}
+                mouseLeaveDelay={0.1}
+                destroyTooltipOnHide
+                getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+              >
+                <Button 
+                  icon={<RedoOutlined />} 
+                  onClick={handleRedo}
+                  disabled={isLocked || history.currentIndex >= history.nodes.length - 1}
+                  style={{ transition: 'all 0.2s' }}
+                />
+              </Tooltip>
+              <Tooltip 
+                title="自动布局" 
+                mouseEnterDelay={0.5}
+                mouseLeaveDelay={0.1}
+                destroyTooltipOnHide
+                getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+              >
+                <Button
+                  icon={<LayoutOutlined />}
+                  onClick={handleAutoLayout}
+                  disabled={isLocked || nodes.length === 0}
+                >
+                  布局
                 </Button>
-              </Dropdown>
-            </Tooltip>
-            <Button 
-              icon={<PlusOutlined />} 
-              onClick={() => handleAddNode(selectedNode?.id)}
-              disabled={isLocked}
-            >
-              {selectedNode ? '添加子节点' : '新增节点'}
-            </Button>
-            <Tooltip 
-              title="撤销 (Ctrl+Z)" 
-              mouseEnterDelay={0.5}
-              mouseLeaveDelay={0.1}
-              destroyTooltipOnHide
-              getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
-            >
+              </Tooltip>
+            </Space.Compact>
+
+            {/* 文件操作组 */}
+            <Space.Compact>
               <Button 
-                icon={<UndoOutlined />} 
-                onClick={handleUndo}
-                disabled={isLocked || history.currentIndex <= 0}
-                style={{ transition: 'all 0.2s' }}
-              />
-            </Tooltip>
-            <Tooltip 
-              title="重做 (Ctrl+Y)" 
-              mouseEnterDelay={0.5}
-              mouseLeaveDelay={0.1}
-              destroyTooltipOnHide
-              getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
-            >
-              <Button 
-                icon={<RedoOutlined />} 
-                onClick={handleRedo}
-                disabled={isLocked || history.currentIndex >= history.nodes.length - 1}
-                style={{ transition: 'all 0.2s' }}
-              />
-            </Tooltip>
-            <Tooltip 
-              title="自动布局" 
-              mouseEnterDelay={0.5}
-              mouseLeaveDelay={0.1}
-              destroyTooltipOnHide
-              getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
-            >
-              <Button
-                icon={<LayoutOutlined />}
-                onClick={handleAutoLayout}
-                disabled={isLocked || nodes.length === 0}
-              >
-                布局
-              </Button>
-            </Tooltip>
-            <Button 
-              icon={<SaveOutlined />} 
-              onClick={handleSave}
-              disabled={isLocked}
-            >
-              保存
-            </Button>
-            <Tooltip 
-              title="加载思维导图" 
-              mouseEnterDelay={0.5}
-              mouseLeaveDelay={0.1}
-              destroyTooltipOnHide
-              getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
-            >
-              <Button
-                icon={<UploadOutlined />}
-                onClick={handleLoad}
-                disabled={isLocked || nodes.length > 0}
-                className="load-button"
-              >
-                加载
-              </Button>
-            </Tooltip>
-            <Tooltip 
-              title="导出为Markdown格式" 
-              mouseEnterDelay={0.5}
-              mouseLeaveDelay={0.1}
-              destroyTooltipOnHide
-              getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
-            >
-              <Button 
-                icon={<FileOutlined />} 
-                onClick={async () => {
-                  try {
-                    const mindMapData = getMindMapData();
-                    
-                    // 检查是否在非 HTTPS 环境
-                    const isNotSecure = window.location.protocol !== 'https:' && window.location.hostname !== 'localhost';
-                    
-                    // 如果没有选择保存目录且环境支持，提示用户选择
-                    if (!saveDirectoryHandle && 'showDirectoryPicker' in window && !isNotSecure) {
-                      const shouldSelect = await new Promise<boolean>((resolve) => {
-                        Modal.confirm({
-                          title: '选择保存路径',
-                          content: '您尚未选择保存路径，是否现在选择？',
-                          okText: '选择',
-                          cancelText: '取消',
-                          onOk: () => resolve(true),
-                          onCancel: () => resolve(false),
-                        });
-                      });
-                      
-                      if (shouldSelect) {
-                        await selectSaveDirectory();
-                      }
-                    }
-                    
-                    const success = await saveToMarkdown(mindMapData, currentCanvasName, saveDirectoryHandle);
-                    
-                    if (success) {
-                      if (saveDirectoryHandle) {
-                        message.success(`Markdown文件已保存到 ${saveDirectoryPath} 目录`);
-                      } else if (isNotSecure) {
-                        message.success('成功导出为Markdown格式（使用传统下载方式）');
-                      } else {
-                        message.success('成功导出为Markdown格式');
-                      }
-                    } else {
-                      message.error('导出失败');
-                    }
-                  } catch (error) {
-                    console.error('导出Markdown时出错:', error);
-                    message.error('导出失败');
-                  }
-                }}
+                icon={<SaveOutlined />} 
+                onClick={handleSave}
                 disabled={isLocked}
               >
-                导出MD
+                保存
               </Button>
-            </Tooltip>
-            <Tooltip 
-              title={autoSave ? "自动保存已开启" : "自动保存已关闭"} 
-              mouseEnterDelay={0.5}
-              mouseLeaveDelay={0.1}
-              destroyTooltipOnHide
-              getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', marginLeft: '8px' }}>
-                <span style={{ marginRight: '8px', fontSize: '12px', color: '#666' }}>自动保存</span>
-                <Switch 
-                  checked={autoSave} 
-                  onChange={setAutoSave} 
-                  size="small"
-                  style={{ background: autoSave ? '#1890ff' : '#bfbfbf' }}
+              <Tooltip 
+                title="加载思维导图" 
+                mouseEnterDelay={0.5}
+                mouseLeaveDelay={0.1}
+                destroyTooltipOnHide
+                getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+              >
+                <Button
+                  icon={<UploadOutlined />}
+                  onClick={handleLoad}
+                  disabled={isLocked || nodes.length > 0}
+                  className="load-button"
+                >
+                  加载
+                </Button>
+              </Tooltip>
+              <Tooltip 
+                title="导出为Markdown格式" 
+                mouseEnterDelay={0.5}
+                mouseLeaveDelay={0.1}
+                destroyTooltipOnHide
+                getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+              >
+                <Button 
+                  icon={<FileOutlined />} 
+                  onClick={async () => {
+                    try {
+                      const mindMapData = getMindMapData();
+                      
+                      // 检查是否在非 HTTPS 环境
+                      const isNotSecure = window.location.protocol !== 'https:' && window.location.hostname !== 'localhost';
+                      
+                      // 如果没有选择保存目录且环境支持，提示用户选择
+                      if (!saveDirectoryHandle && 'showDirectoryPicker' in window && !isNotSecure) {
+                        const shouldSelect = await new Promise<boolean>((resolve) => {
+                          Modal.confirm({
+                            title: '选择保存路径',
+                            content: '您尚未选择保存路径，是否现在选择？',
+                            okText: '选择',
+                            cancelText: '取消',
+                            onOk: () => resolve(true),
+                            onCancel: () => resolve(false),
+                          });
+                        });
+                        
+                        if (shouldSelect) {
+                          await selectSaveDirectory();
+                        }
+                      }
+                      
+                      const success = await saveToMarkdown(mindMapData, currentCanvasName, saveDirectoryHandle);
+                      
+                      if (success) {
+                        if (saveDirectoryHandle) {
+                          message.success(`Markdown文件已保存到 ${saveDirectoryPath} 目录`);
+                        } else if (isNotSecure) {
+                          message.success('成功导出为Markdown格式（使用传统下载方式）');
+                        } else {
+                          message.success('成功导出为Markdown格式');
+                        }
+                      } else {
+                        message.error('导出失败');
+                      }
+                    } catch (error) {
+                      console.error('导出Markdown时出错:', error);
+                      message.error('导出失败');
+                    }
+                  }}
                   disabled={isLocked}
-                />
-              </div>
-            </Tooltip>
-          </Space>
-          <Space>
-            <span>布局方向:</span>
-            <Select 
-              value={layoutDirection}
-              style={{ width: 120 }} 
-              onChange={(value) => setLayoutDirection(value)}
-              disabled={isLocked}
-            >
-              <Option value="LR">从左到右</Option>
-              <Option value="RL">从右到左</Option>
-              <Option value="TB">从上到下</Option>
-              <Option value="BT">从下到上</Option>
-            </Select>
-            <span>节点间距:</span>
-            <Select
-              value={nodeSpacing}
-              style={{ width: 100 }}
-              onChange={(value) => setNodeSpacing(Number(value))}
-              disabled={isLocked}
-            >
-              <Option value={50}>紧凑</Option>
-              <Option value={100}>标准</Option>
-              <Option value={150}>宽松</Option>
-              <Option value={200}>超宽</Option>
-            </Select>
-            <span>层级间距:</span>
-            <Select
-              value={rankSpacing}
-              style={{ width: 100 }}
-              onChange={(value) => setRankSpacing(Number(value))}
-              disabled={isLocked}
-            >
-              <Option value={80}>紧凑</Option>
-              <Option value={150}>标准</Option>
-              <Option value={200}>宽松</Option>
-              <Option value={250}>超宽</Option>
-            </Select>
-          </Space>
-          
-          {/* 显示保存路径 */}
-          <Space>
-            <span>保存路径:</span>
-            <span style={{ 
-              backgroundColor: 'rgba(255, 255, 255, 0.8)', 
-              padding: '2px 8px', 
-              borderRadius: '4px',
-              maxWidth: '200px',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap'
-            }}>
-              {saveDirectoryPath}
-            </span>
-            <Button 
-              size="small" 
-              icon={<UploadOutlined />} 
-              onClick={selectSaveDirectory}
-              disabled={isLocked || !isDirectoryPickerSupported()}
-            >
-              选择路径
-            </Button>
-          </Space>
+                >
+                  导出MD
+                </Button>
+              </Tooltip>
+            </Space.Compact>
+          </div>
         </Space>
       </div>
+      
+      {/* 顶部中间工具栏 - 添加布局与保存设置按钮 */}
+      <div style={{ 
+        position: 'absolute', 
+        top: 20, 
+        left: '50%', 
+        transform: 'translateX(-50%)', 
+        zIndex: 10,
+        display: 'flex',
+        alignItems: 'center',
+        background: 'rgba(255, 255, 255, 0.9)',
+        padding: '4px 12px',
+        borderRadius: '4px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+      }}>
+        <Tooltip 
+          title="布局与保存设置" 
+          mouseEnterDelay={0.5}
+          mouseLeaveDelay={0.1}
+          destroyTooltipOnHide
+          getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+        >
+          <Button 
+            icon={<SettingOutlined />} 
+            onClick={() => setDrawerVisible(true)}
+            style={{ marginRight: '8px' }}
+          >
+            布局与保存设置
+          </Button>
+        </Tooltip>
+      </div>
+
+      {/* 布局与保存设置抽屉 */}
+      <Drawer
+        title="布局与保存设置"
+        placement="right"
+        closable={true}
+        onClose={() => setDrawerVisible(false)}
+        open={drawerVisible}
+        width={350}
+      >
+        <div style={{ padding: '16px 0' }}>
+          {/* 布局设置部分 */}
+          <div style={{ marginBottom: '32px' }}>
+            <h4 style={{ marginBottom: '16px', fontSize: '14px', color: '#333', borderBottom: '1px solid #f0f0f0', paddingBottom: '8px' }}>
+              布局设置
+            </h4>
+            
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ marginBottom: '8px', fontSize: '13px', color: '#333' }}>布局方向</div>
+              <Select 
+                value={layoutDirection}
+                style={{ width: '100%' }} 
+                onChange={(value) => setLayoutDirection(value)}
+                disabled={isLocked}
+              >
+                <Option value="LR">从左到右</Option>
+                <Option value="RL">从右到左</Option>
+                <Option value="TB">从上到下</Option>
+                <Option value="BT">从下到上</Option>
+              </Select>
+            </div>
+            
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ marginBottom: '8px', fontSize: '13px', color: '#333' }}>节点间距</div>
+              <Select
+                value={nodeSpacing}
+                style={{ width: '100%' }}
+                onChange={(value) => setNodeSpacing(Number(value))}
+                disabled={isLocked}
+              >
+                <Option value={50}>紧凑</Option>
+                <Option value={100}>标准</Option>
+                <Option value={150}>宽松</Option>
+                <Option value={200}>超宽</Option>
+              </Select>
+            </div>
+            
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ marginBottom: '8px', fontSize: '13px', color: '#333' }}>层级间距</div>
+              <Select
+                value={rankSpacing}
+                style={{ width: '100%' }}
+                onChange={(value) => setRankSpacing(Number(value))}
+                disabled={isLocked}
+              >
+                <Option value={80}>紧凑</Option>
+                <Option value={150}>标准</Option>
+                <Option value={200}>宽松</Option>
+                <Option value={250}>超宽</Option>
+              </Select>
+            </div>
+            
+            <Button 
+              type="primary" 
+              icon={<LayoutOutlined />}
+              onClick={handleAutoLayout}
+              disabled={isLocked || nodes.length === 0}
+              style={{ width: '100%', marginTop: '8px' }}
+            >
+              应用布局
+            </Button>
+          </div>
+          
+          {/* 自动保存设置部分 */}
+          <div style={{ marginBottom: '32px' }}>
+            <h4 style={{ marginBottom: '16px', fontSize: '14px', color: '#333', borderBottom: '1px solid #f0f0f0', paddingBottom: '8px' }}>
+              自动保存设置
+            </h4>
+            
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px' }}>
+              <Switch 
+                checked={autoSave} 
+                onChange={setAutoSave} 
+                style={{ marginRight: '12px' }}
+                disabled={isLocked}
+              />
+              <span style={{ fontSize: '14px', color: autoSave ? '#1890ff' : '#666' }}>
+                {autoSave ? '自动保存已开启' : '自动保存已关闭'}
+              </span>
+            </div>
+            
+            <p style={{ fontSize: '12px', color: '#666', margin: 0 }}>
+              开启自动保存后，系统会在您编辑思维导图时自动保存更改
+            </p>
+          </div>
+          
+          {/* 保存路径设置部分 */}
+          <div>
+            <h4 style={{ marginBottom: '16px', fontSize: '14px', color: '#333', borderBottom: '1px solid #f0f0f0', paddingBottom: '8px' }}>
+              保存路径设置
+            </h4>
+            
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ marginBottom: '8px', fontSize: '13px', color: '#333' }}>当前保存路径</div>
+              <div style={{ 
+                backgroundColor: 'rgba(240, 240, 240, 0.8)', 
+                padding: '8px 12px', 
+                borderRadius: '4px',
+                wordBreak: 'break-all'
+              }}>
+                {saveDirectoryPath}
+              </div>
+            </div>
+            
+            <div style={{ marginBottom: '24px' }}>
+              <div style={{ marginBottom: '8px', fontSize: '13px', color: '#333' }}>选择新的保存路径</div>
+              <p style={{ fontSize: '12px', color: '#666', marginBottom: '16px' }}>
+                选择一个文件夹作为思维导图和Markdown文件的保存位置
+              </p>
+              
+              <Button 
+                icon={<UploadOutlined />} 
+                onClick={selectSaveDirectory}
+                disabled={isLocked || !isDirectoryPickerSupported()}
+                style={{ width: '100%' }}
+              >
+                选择保存路径
+              </Button>
+            </div>
+            
+            {!isDirectoryPickerSupported() && (
+              <div style={{ 
+                backgroundColor: 'rgba(250, 240, 210, 0.8)', 
+                padding: '12px', 
+                borderRadius: '4px',
+                marginBottom: '16px'
+              }}>
+                <p style={{ fontSize: '12px', color: '#d48806', margin: 0 }}>
+                  您的浏览器不支持文件夹选择功能，将使用传统下载方式保存文件。
+                  建议使用最新版的Chrome、Edge或其他支持File System Access API的浏览器。
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </Drawer>
 
       {contextMenu.visible && (
         <div
@@ -2511,6 +2825,11 @@ const MindMap: React.FC = () => {
             backgroundColor: 'rgba(255, 255, 255, 0.9)',
             borderRadius: '8px',
             boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+            bottom: '20px',
+            top: 'auto',
+            left: '20px',
+            right: 'auto',
+            position: 'absolute',
           }}
         />
       </ReactFlow>

@@ -98,6 +98,7 @@ const CustomNode: React.FC<CustomNodeProps> = ({ data, selected }) => {
     border: `1px solid ${selected ? '#1890ff' : '#999'}`,
     background: selected ? '#1890ff' : '#fff',
     transition: 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
+    opacity: 0.7, // 降低连接点的不透明度，使其不那么显眼
   };
   
   // 提取描述的纯文本摘要
@@ -117,6 +118,8 @@ const CustomNode: React.FC<CustomNodeProps> = ({ data, selected }) => {
         height: 'auto',
         transform: 'scale(1)',
         transition: 'border 0.3s, box-shadow 0.3s',
+        position: 'relative',
+        zIndex: selected ? 10 : 1, // 选中的节点置于顶层
       }}
     >
       {/* 顶部连接点 */}
