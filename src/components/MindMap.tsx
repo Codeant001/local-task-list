@@ -1750,6 +1750,118 @@ const MindMap: React.FC = () => {
     };
   }, [editor]);
 
+  // 添加自动缓存功能
+  useEffect(() => {
+    // 自动保存到本地存储的函数
+    const saveToLocalStorage = () => {
+      try {
+        // 如果画布被锁定或没有节点，不执行保存
+        if (isLocked || nodes.length === 0) return;
+
+        // 保存当前画布状态到 localStorage
+        const canvasState = {
+          nodes,
+          edges,
+          canvasId: currentCanvasId,
+          canvasName: currentCanvasName,
+          lastSaved: new Date().toISOString()
+        };
+        localStorage.setItem('mindmap_autosave', JSON.stringify(canvasState));
+        
+        // 记录保存时间
+        localStorage.setItem('mindmap_last_saved', new Date().toISOString());
+      } catch (error) {
+        console.error('自动缓存失败:', error);
+      }
+    };
+
+    // 监听页面可见性变化（处理标签页切换）
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        saveToLocalStorage();
+      }
+    };
+
+    // 监听页面跳转
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      saveToLocalStorage();
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    // 监听键盘事件（F1等）
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // F1-F12, Alt, Ctrl+R 等可能导致页面刷新或离开的组合键
+      if (
+        (event.key >= 'F1' && event.key <= 'F12') ||
+        (event.altKey && event.key === 'Left') ||
+        (event.ctrlKey && event.key === 'r') ||
+        (event.key === 'Escape')
+      ) {
+        saveToLocalStorage();
+      }
+    };
+
+    // 定时自动保存（每分钟）
+    const autoSaveInterval = setInterval(saveToLocalStorage, 60000);
+
+    // 添加事件监听器
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('keydown', handleKeyDown);
+
+    // 组件卸载时清理
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('keydown', handleKeyDown);
+      clearInterval(autoSaveInterval);
+    };
+  }, [nodes, edges, isLocked, currentCanvasId, currentCanvasName]);
+
+  // 组件加载时检查是否有自动保存的内容
+  useEffect(() => {
+    const loadAutoSavedContent = async () => {
+      try {
+        const savedContent = localStorage.getItem('mindmap_autosave');
+        const lastSavedTime = localStorage.getItem('mindmap_last_saved');
+
+        if (savedContent && lastSavedTime) {
+          const { nodes: savedNodes, edges: savedEdges, canvasId, canvasName } = JSON.parse(savedContent);
+
+          // 计算上次保存时间
+          const lastSavedDate = new Date(lastSavedTime);
+          const timeDiff = Math.floor((Date.now() - lastSavedDate.getTime()) / 1000 / 60); // 转换为分钟
+
+          // 询问用户是否要恢复上次的内容
+          Modal.confirm({
+            title: '发现自动保存的内容',
+            content: `检测到${timeDiff}分钟前保存的内容，是否恢复？`,
+            okText: '恢复',
+            cancelText: '不需要',
+            onOk: () => {
+              setNodes(savedNodes);
+              setEdges(savedEdges);
+              setCurrentCanvasId(canvasId);
+              setCurrentCanvasName(canvasName);
+              message.success('已恢复自动保存的内容');
+            },
+            onCancel: () => {
+              // 用户选择不恢复时，清除自动保存的内容
+              localStorage.removeItem('mindmap_autosave');
+              localStorage.removeItem('mindmap_last_saved');
+            }
+          });
+        }
+      } catch (error) {
+        console.error('加载自动保存内容失败:', error);
+        message.error('加载自动保存内容失败');
+      }
+    };
+
+    loadAutoSavedContent();
+  }, []);
+
   // 保存当前画布到历史记录
   const saveToHistory = useCallback(() => {
     // 检查是否已存在相同ID的画布
