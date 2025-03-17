@@ -2560,41 +2560,28 @@ const MindMap: React.FC = () => {
                 </Button>
               </Tooltip>
             </Space.Compact>
+            
+            {/* 设置操作组 */}
+            <Space.Compact>
+              <Tooltip 
+                title="布局与保存设置" 
+                mouseEnterDelay={0.5}
+                mouseLeaveDelay={0.1}
+                destroyTooltipOnHide
+                getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
+              >
+                <Button 
+                  icon={<SettingOutlined />} 
+                  onClick={() => setDrawerVisible(true)}
+                >
+                  设置
+                </Button>
+              </Tooltip>
+            </Space.Compact>
           </div>
         </Space>
       </div>
       
-      {/* 顶部中间工具栏 - 添加布局与保存设置按钮 */}
-      <div style={{ 
-        position: 'absolute', 
-        top: 20, 
-        left: '50%', 
-        transform: 'translateX(-50%)', 
-        zIndex: 10,
-        display: 'flex',
-        alignItems: 'center',
-        background: 'rgba(255, 255, 255, 0.9)',
-        padding: '4px 12px',
-        borderRadius: '4px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-      }}>
-        <Tooltip 
-          title="布局与保存设置" 
-          mouseEnterDelay={0.5}
-          mouseLeaveDelay={0.1}
-          destroyTooltipOnHide
-          getPopupContainer={(triggerNode) => triggerNode.parentNode as HTMLElement}
-        >
-          <Button 
-            icon={<SettingOutlined />} 
-            onClick={() => setDrawerVisible(true)}
-            style={{ marginRight: '8px' }}
-          >
-            布局与保存设置
-          </Button>
-        </Tooltip>
-      </div>
-
       {/* 布局与保存设置抽屉 */}
       <Drawer
         title="布局与保存设置"
