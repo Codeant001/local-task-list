@@ -2941,6 +2941,7 @@ const MindMap: React.FC = () => {
         open={isModalVisible}
         onOk={handleModalOk}
         onCancel={handleModalCancel}
+        maskClosable={false}
         width={800}
         styles={{
           body: { maxHeight: '80vh', overflow: 'auto' }
