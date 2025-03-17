@@ -1510,14 +1510,32 @@ const MindMap: React.FC = () => {
     const currentDate = new Date().toISOString().split('T')[0];
     const newNodeId = `node-${Date.now()}`;
     
-    let newNodePosition = { x: 100, y: 100 };
+    // 获取当前视图的可见区域
+    const { x, y, zoom } = reactFlowInstance.getViewport();
     
+    // 计算视图中心点的坐标
+    const centerX = window.innerWidth / 2;
+    const centerY = window.innerHeight / 2;
+    
+    // 将屏幕坐标转换为流程图坐标
+    const flowPosition = reactFlowInstance.screenToFlowPosition({
+      x: centerX,
+      y: centerY,
+    });
+    
+    // 默认位置：视图中心点
+    let newNodePosition = { 
+      x: flowPosition.x, 
+      y: flowPosition.y 
+    };
+    
+    // 如果有父节点，则相对于父节点定位
     if (parentId) {
       const parentNode = nodes.find(node => node.id === parentId);
       if (parentNode) {
         const HORIZONTAL_OFFSET = NODE_WIDTH * 1.5;
         
-        // 初始位置
+        // 初始位置：父节点右侧
         newNodePosition = {
           x: parentNode.position.x + HORIZONTAL_OFFSET,
           y: parentNode.position.y,
@@ -1526,24 +1544,30 @@ const MindMap: React.FC = () => {
         // 检查是否与现有节点重叠
         const isOverlapping = (pos: {x: number, y: number}) => {
           return nodes.some(node => {
+            if (node.id === parentId) return false; // 忽略父节点
             const dx = Math.abs(node.position.x - pos.x);
             const dy = Math.abs(node.position.y - pos.y);
-            return dx < NODE_WIDTH && dy < NODE_HEIGHT;
+            // 增加判断边距，确保节点之间有足够空间
+            return dx < NODE_WIDTH * 1.2 && dy < NODE_HEIGHT * 1.2;
           });
         };
         
         // 如果重叠，尝试找到一个不重叠的位置
         if (isOverlapping(newNodePosition)) {
-          // 尝试不同的位置偏移
+          // 尝试更多方向的位置偏移
           const offsets = [
-            { x: 0, y: NODE_HEIGHT * 1.2 },  // 下方
-            { x: 0, y: -NODE_HEIGHT * 1.2 }, // 上方
-            { x: NODE_WIDTH * 0.5, y: NODE_HEIGHT * 0.8 },  // 右下
-            { x: NODE_WIDTH * 0.5, y: -NODE_HEIGHT * 0.8 }, // 右上
-            { x: NODE_WIDTH * 0.8, y: 0 },   // 更远的右侧
+            { x: 0, y: NODE_HEIGHT * 1.5 },  // 下方
+            { x: 0, y: -NODE_HEIGHT * 1.5 }, // 上方
+            { x: NODE_WIDTH * 1.5, y: 0 },   // 更远的右侧
+            { x: NODE_WIDTH * 1.0, y: NODE_HEIGHT * 1.0 },  // 右下
+            { x: NODE_WIDTH * 1.0, y: -NODE_HEIGHT * 1.0 }, // 右上
+            { x: NODE_WIDTH * 2.0, y: NODE_HEIGHT * 0.5 },  // 更远的右下
+            { x: NODE_WIDTH * 2.0, y: -NODE_HEIGHT * 0.5 }, // 更远的右上
+            { x: NODE_WIDTH * 2.5, y: 0 },   // 最远的右侧
           ];
           
           // 尝试每个偏移位置，直到找到不重叠的位置
+          let foundNonOverlappingPosition = false;
           for (const offset of offsets) {
             const testPosition = {
               x: parentNode.position.x + HORIZONTAL_OFFSET + offset.x,
@@ -1552,7 +1576,27 @@ const MindMap: React.FC = () => {
             
             if (!isOverlapping(testPosition)) {
               newNodePosition = testPosition;
+              foundNonOverlappingPosition = true;
               break;
+            }
+          }
+          
+          // 如果所有预定义位置都重叠，则使用随机偏移
+          if (!foundNonOverlappingPosition) {
+            // 生成随机偏移，直到找到不重叠的位置
+            let attempts = 0;
+            const maxAttempts = 20; // 最大尝试次数
+            
+            while (isOverlapping(newNodePosition) && attempts < maxAttempts) {
+              const randomOffsetX = (Math.random() * 2 - 1) * NODE_WIDTH * 3; // -3*WIDTH 到 3*WIDTH
+              const randomOffsetY = (Math.random() * 2 - 1) * NODE_HEIGHT * 3; // -3*HEIGHT 到 3*HEIGHT
+              
+              newNodePosition = {
+                x: parentNode.position.x + HORIZONTAL_OFFSET + randomOffsetX,
+                y: parentNode.position.y + randomOffsetY
+              };
+              
+              attempts++;
             }
           }
         }
@@ -1569,6 +1613,62 @@ const MindMap: React.FC = () => {
         };
         
         setEdges((eds) => [...eds, newEdge]);
+      }
+    } else {
+      // 如果没有父节点，则在视图中心创建节点，但避免与现有节点重叠
+      const isOverlapping = (pos: {x: number, y: number}) => {
+        return nodes.some(node => {
+          const dx = Math.abs(node.position.x - pos.x);
+          const dy = Math.abs(node.position.y - pos.y);
+          return dx < NODE_WIDTH * 1.2 && dy < NODE_HEIGHT * 1.2;
+        });
+      };
+      
+      // 如果中心点位置重叠，尝试找到一个不重叠的位置
+      if (nodes.length > 0 && isOverlapping(newNodePosition)) {
+        // 在视图中心周围尝试不同的位置
+        const viewCenterOffsets = [
+          { x: NODE_WIDTH * 1.5, y: 0 },
+          { x: -NODE_WIDTH * 1.5, y: 0 },
+          { x: 0, y: NODE_HEIGHT * 1.5 },
+          { x: 0, y: -NODE_HEIGHT * 1.5 },
+          { x: NODE_WIDTH, y: NODE_HEIGHT },
+          { x: -NODE_WIDTH, y: NODE_HEIGHT },
+          { x: NODE_WIDTH, y: -NODE_HEIGHT },
+          { x: -NODE_WIDTH, y: -NODE_HEIGHT },
+        ];
+        
+        let foundNonOverlappingPosition = false;
+        for (const offset of viewCenterOffsets) {
+          const testPosition = {
+            x: flowPosition.x + offset.x,
+            y: flowPosition.y + offset.y
+          };
+          
+          if (!isOverlapping(testPosition)) {
+            newNodePosition = testPosition;
+            foundNonOverlappingPosition = true;
+            break;
+          }
+        }
+        
+        // 如果所有预定义位置都重叠，则使用随机偏移
+        if (!foundNonOverlappingPosition) {
+          let attempts = 0;
+          const maxAttempts = 20;
+          
+          while (isOverlapping(newNodePosition) && attempts < maxAttempts) {
+            const randomOffsetX = (Math.random() * 2 - 1) * NODE_WIDTH * 3;
+            const randomOffsetY = (Math.random() * 2 - 1) * NODE_HEIGHT * 3;
+            
+            newNodePosition = {
+              x: flowPosition.x + randomOffsetX,
+              y: flowPosition.y + randomOffsetY
+            };
+            
+            attempts++;
+          }
+        }
       }
     }
     
@@ -1589,7 +1689,22 @@ const MindMap: React.FC = () => {
       position: newNodePosition,
     };
     
-    setNodes((nds) => [...nds, newNode]);
+    // 添加新节点
+    setNodes((nds) => {
+      const updatedNodes = [...nds, newNode];
+      return updatedNodes;
+    });
+    
+    // 确保新节点在视图中可见
+    setTimeout(() => {
+      // 使用setCenter方法聚焦到新节点
+      reactFlowInstance.setCenter(
+        newNodePosition.x + NODE_WIDTH / 2,
+        newNodePosition.y + NODE_HEIGHT / 2,
+        { duration: 500 }
+      );
+    }, 50);
+    
     setSelectedNode(newNode);
     
     if (parentId) {
