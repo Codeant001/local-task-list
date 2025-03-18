@@ -1464,12 +1464,7 @@ const MindMap: React.FC = () => {
           key: 'add-node',
           label: '添加子节点',
           onClick: () => handleAddNode(node.id),
-        },
-        {
-          key: 'add-theme',
-          label: '添加新主题',
-          onClick: handleAddTheme,
-        },
+        }
       ],
     });
   };
@@ -1486,12 +1481,7 @@ const MindMap: React.FC = () => {
           key: 'add-node',
           label: '新增节点',
           onClick: () => handleAddNode(),
-        },
-        {
-          key: 'add-theme',
-          label: '添加新主题',
-          onClick: handleAddTheme,
-        },
+        }
       ],
     });
   };
@@ -1502,8 +1492,6 @@ const MindMap: React.FC = () => {
       x: 0,
       y: 0,
     });
-    // 注意：不在这里清除selectedNode，因为已经在onPaneClick中处理了
-    // 这样可以避免点击节点后立即清除选中状态
   };
 
   const handleAddNode = (parentId?: string) => {
