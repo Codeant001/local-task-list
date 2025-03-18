@@ -1,4 +1,37 @@
-import { MindMapData } from '../types/MindMap';
+import { MindMapData, MindMapNode } from '../types/MindMap';
+
+// 格式化日期函数
+const formatDate = (date: Date): string => {
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+};
+
+// 获取优先级文本
+const getPriorityText = (priority: string): string => {
+  const priorityMap: Record<string, string> = {
+    'low': '低',
+    'medium': '中',
+    'high': '高'
+  };
+  return priorityMap[priority] || priority;
+};
+
+// 获取状态文本
+const getStatusText = (status: string): string => {
+  const statusMap: Record<string, string> = {
+    'todo': '待办',
+    'in_progress': '进行中',
+    'done': '已完成'
+  };
+  return statusMap[status] || status;
+};
 
 // 检查是否支持 File System Access API
 const isFileSystemAccessSupported = () => {
@@ -319,4 +352,69 @@ export const saveToMarkdown = async (
     console.error('保存Markdown文件时出错:', error);
     return false;
   }
-}; 
+};
+
+function processNode(node: MindMapNode, depth: number, path: string, result: string[] = []): string[] {
+  if (!node) return result;
+  
+  // 确保节点有一个初始化的 children 数组
+  node.children = node.children || [];
+  
+  // 创建当前节点的Markdown标记
+  const indent = '  '.repeat(depth);
+  const bullet = depth === 0 ? '# ' : '- ';
+  const title = node.title || '未命名任务';
+  const pathPrefix = path ? `${path} > ` : '';
+  const fullPath = `${pathPrefix}${title}`;
+  
+  // 添加基本信息
+  result.push(`${indent}${bullet}${title}`);
+  
+  // 添加详细信息（如果有的话）
+  const details: string[] = [];
+  
+  if (node.description && node.description.trim()) {
+    details.push(`${indent}  描述: ${node.description.trim()}`);
+  }
+  
+  if (node.priority) {
+    details.push(`${indent}  优先级: ${getPriorityText(node.priority)}`);
+  }
+  
+  if (node.status) {
+    details.push(`${indent}  状态: ${getStatusText(node.status)}`);
+  }
+  
+  if (node.created_at) {
+    const createdDate = new Date(node.created_at);
+    if (!isNaN(createdDate.getTime())) {
+      details.push(`${indent}  创建时间: ${formatDate(createdDate)}`);
+    }
+  }
+  
+  if (node.start_date) {
+    details.push(`${indent}  开始日期: ${node.start_date}`);
+  }
+  
+  if (node.due_date) {
+    details.push(`${indent}  截止日期: ${node.due_date}`);
+  }
+  
+  if (node.tags && node.tags.length > 0) {
+    details.push(`${indent}  标签: ${node.tags.join(', ')}`);
+  }
+  
+  // 如果有详细信息，添加到结果中
+  if (details.length > 0) {
+    result.push('');
+    result.push(...details);
+    result.push('');
+  }
+  
+  // 递归处理子节点
+  for (const child of node.children) {
+    processNode(child, depth + 1, fullPath, result);
+  }
+  
+  return result;
+} 

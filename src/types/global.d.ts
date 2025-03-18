@@ -13,11 +13,17 @@ interface Window {
       accept: Record<string, string[]>;
     }>;
   }): Promise<FileSystemFileHandle[]>;
+
+  showDirectoryPicker(): Promise<FileSystemDirectoryHandle>;
 }
 
 interface FileSystemFileHandle {
   getFile(): Promise<File>;
   createWritable(): Promise<FileSystemWritableFileStream>;
+}
+
+interface FileSystemDirectoryHandle {
+  getFileHandle(name: string, options?: { create?: boolean }): Promise<FileSystemFileHandle>;
 }
 
 interface FileSystemWritableFileStream extends WritableStream {

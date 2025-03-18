@@ -23,6 +23,7 @@ import ReactFlow, {
   EdgeChange,
   ConnectionLineType,
   ConnectionMode,
+  NodeProps,
 } from 'reactflow';
 import dagre from 'dagre';
 import 'reactflow/dist/style.css';
@@ -746,245 +747,73 @@ const MindMap: React.FC = () => {
   // 处理自动布局
   const handleAutoLayout = useCallback(() => {
     if (!nodes.length) return;
-    
-    // 保存当前节点位置，用于动画
-    const nodesWithOriginalPositions = nodes.map(node => ({
-      ...node,
-      data: {
-        ...node.data,
-        originalX: node.position.x,
-        originalY: node.position.y,
-      }
-    }));
-    
-    // 创建一个新的 dagre 图
+
+    // 创建一个新的 dagre 图实例
     const dagreGraph = new dagre.graphlib.Graph();
     dagreGraph.setDefaultEdgeLabel(() => ({}));
 
     // 设置布局方向和节点大小
     const isHorizontal = layoutDirection === 'LR' || layoutDirection === 'RL';
-    dagreGraph.setGraph({ 
+    dagreGraph.setGraph({
       rankdir: layoutDirection,
-      nodesep: isHorizontal ? nodeSpacing * 1.2 : nodeSpacing * 0.6, // 增加节点之间的水平间距
-      ranksep: isHorizontal ? rankSpacing * 1.0 : rankSpacing * 0.7, // 增加层级之间的垂直间距
-      marginx: 50, // 增加图的水平边距
-      marginy: 50, // 增加图的垂直边距
-      align: 'DL', // 对齐方式：DL=向下和向左
-      acyclicer: 'greedy', // 处理循环依赖
-      ranker: 'network-simplex', // 布局算法
+      nodesep: nodeSpacing,
+      ranksep: rankSpacing,
+      marginx: 50,
+      marginy: 50,
     });
 
-    // 添加节点
-    nodesWithOriginalPositions.forEach((node) => {
-      dagreGraph.setNode(node.id, { 
-        width: NODE_WIDTH + 20, // 增加节点宽度以防止重叠
-        height: NODE_HEIGHT + 10, // 增加节点高度以防止重叠
+    // 添加节点到 dagre 图
+    nodes.forEach((node) => {
+      dagreGraph.setNode(node.id, {
+        width: NODE_WIDTH,
+        height: NODE_HEIGHT,
       });
     });
 
-    // 添加边
+    // 添加边到 dagre 图
     edges.forEach((edge) => {
-      dagreGraph.setEdge(edge.source, edge.target, {
-        weight: 1, // 边的权重
-        minlen: 1.2, // 增加最小长度，使节点之间有更多空间
-      });
+      dagreGraph.setEdge(edge.source, edge.target);
     });
 
     // 计算布局
     dagre.layout(dagreGraph);
 
-    // 获取布局后的节点位置
-    const layoutedNodes = nodesWithOriginalPositions.map((node) => {
+    // 应用布局结果到节点
+    const layoutedNodes = nodes.map((node) => {
       const nodeWithPosition = dagreGraph.node(node.id);
-      
-      // 确保节点存在
-      if (!nodeWithPosition) {
-        return node;
-      }
-      
-      // 根据连接方向调整节点位置
-      const connectedEdges = edges.filter(e => e.source === node.id || e.target === node.id);
-      let xOffset = 0;
-      let yOffset = 0;
-      
-      // 根据连接的边调整位置，使连线更美观
-      if (connectedEdges.length > 0) {
-        const sourceEdges = edges.filter(e => e.source === node.id);
-        const targetEdges = edges.filter(e => e.target === node.id);
-        
-        // 如果节点有多个子节点，增加偏移以避免连线重叠
-        if (sourceEdges.length > 2) {
-          yOffset = isHorizontal ? 15 : 0;
-          xOffset = isHorizontal ? 0 : 15;
-        }
-        
-        // 如果节点是多个节点的目标，增加偏移
-        if (targetEdges.length > 2) {
-          yOffset = isHorizontal ? -15 : 0;
-          xOffset = isHorizontal ? 0 : -15;
-        }
-        
-        // 如果同时有多个源和目标，调整偏移量
-        if (sourceEdges.length > 1 && targetEdges.length > 1) {
-          if (isHorizontal) {
-            yOffset = sourceEdges.length > targetEdges.length ? 20 : -20;
-          } else {
-            xOffset = sourceEdges.length > targetEdges.length ? 20 : -20;
-          }
-        }
-      }
-      
-      // 计算新位置
-      const newX = nodeWithPosition.x - NODE_WIDTH / 2 + xOffset;
-      const newY = nodeWithPosition.y - NODE_HEIGHT / 2 + yOffset;
-      
       return {
         ...node,
         position: {
-          x: newX,
-          y: newY,
+          x: nodeWithPosition.x - NODE_WIDTH / 2,
+          y: nodeWithPosition.y - NODE_HEIGHT / 2,
         },
         style: {
           ...node.style,
-          transition: 'transform 0.5s ease-out',
-        }
+          transition: 'all 0.5s ease-in-out',
+        },
       };
     });
-    
-    // 检测并解决节点重叠问题
-    const resolveOverlaps = (nodes: FlowNode[]) => {
-      const nodePositions = new Map<string, {x: number, y: number, width: number, height: number}>();
-      
-      // 记录所有节点的位置和大小
-      nodes.forEach(node => {
-        nodePositions.set(node.id, {
-          x: node.position.x,
-          y: node.position.y,
-          width: NODE_WIDTH,
-          height: NODE_HEIGHT
-        });
-      });
-      
-      // 检测重叠并调整位置
-      const adjustedNodes = [...nodes];
-      let hasOverlap = true;
-      let iterations = 0;
-      const maxIterations = 3; // 限制迭代次数
-      
-      while (hasOverlap && iterations < maxIterations) {
-        hasOverlap = false;
-        iterations++;
-        
-        for (let i = 0; i < adjustedNodes.length; i++) {
-          const nodeA = adjustedNodes[i];
-          const posA = nodePositions.get(nodeA.id)!;
-          
-          for (let j = i + 1; j < adjustedNodes.length; j++) {
-            const nodeB = adjustedNodes[j];
-            const posB = nodePositions.get(nodeB.id)!;
-            
-            // 检测两个节点是否重叠
-            const overlapX = Math.abs(posA.x - posB.x) < (posA.width + posB.width) / 2 - 5;
-            const overlapY = Math.abs(posA.y - posB.y) < (posA.height + posB.height) / 2 - 5;
-            
-            if (overlapX && overlapY) {
-              hasOverlap = true;
-              
-              // 计算需要移动的距离
-              const moveX = ((posA.width + posB.width) / 2 + 10) - Math.abs(posA.x - posB.x);
-              const moveY = ((posA.height + posB.height) / 2 + 10) - Math.abs(posA.y - posB.y);
-              
-              // 选择移动距离较小的方向
-              if (moveX < moveY) {
-                // 水平方向移动
-                const direction = posA.x < posB.x ? -1 : 1;
-                adjustedNodes[i] = {
-                  ...nodeA,
-                  position: {
-                    ...nodeA.position,
-                    x: nodeA.position.x + direction * moveX / 2
-                  }
-                };
-                adjustedNodes[j] = {
-                  ...nodeB,
-                  position: {
-                    ...nodeB.position,
-                    x: nodeB.position.x - direction * moveX / 2
-                  }
-                };
-                
-                // 更新位置记录
-                nodePositions.set(nodeA.id, {
-                  ...posA,
-                  x: posA.x + direction * moveX / 2
-                });
-                nodePositions.set(nodeB.id, {
-                  ...posB,
-                  x: posB.x - direction * moveX / 2
-                });
-              } else {
-                // 垂直方向移动
-                const direction = posA.y < posB.y ? -1 : 1;
-                adjustedNodes[i] = {
-                  ...nodeA,
-                  position: {
-                    ...nodeA.position,
-                    y: nodeA.position.y + direction * moveY / 2
-                  }
-                };
-                adjustedNodes[j] = {
-                  ...nodeB,
-                  position: {
-                    ...nodeB.position,
-                    y: nodeB.position.y - direction * moveY / 2
-                  }
-                };
-                
-                // 更新位置记录
-                nodePositions.set(nodeA.id, {
-                  ...posA,
-                  y: posA.y + direction * moveY / 2
-                });
-                nodePositions.set(nodeB.id, {
-                  ...posB,
-                  y: posB.y - direction * moveY / 2
-                });
-              }
-            }
-          }
-        }
-      }
-      
-      return adjustedNodes;
-    };
-    
-    // 应用重叠解决算法
-    const finalNodes = resolveOverlaps(layoutedNodes);
-    
-    setNodes(finalNodes);
-    
+
+    // 更新节点位置
+    setNodes(layoutedNodes);
+
     // 使用 fitView 确保所有节点都在视图中
     setTimeout(() => {
-      reactFlowInstance.fitView({ padding: 0.3, duration: 800 });
+      reactFlowInstance.fitView({ padding: 0.2, duration: 800 });
     }, 50);
-  }, [nodes, edges, setNodes, reactFlowInstance, layoutDirection, nodeSpacing, rankSpacing]);
+  }, [nodes, edges, layoutDirection, nodeSpacing, rankSpacing, reactFlowInstance]);
 
   // 获取当前思维导图数据
-  const getMindMapData = (): MindMapData => {
-    // 构建思维导图数据结构
-    const mindMapData: MindMapData = {
-      mindMaps: []
-    };
-    
-    // 创建节点映射，用于构建树形结构
+  const getMindMapData = (nodes: FlowNode<{ nodeData: MindMapNode }>[], edges: Edge[]) => {
     const nodeMap = new Map<string, MindMapNode>();
-    
+
     // 首先创建所有节点
-    nodes.forEach(node => {
-      if (node.data.nodeData) {
+    nodes.forEach((node) => {
+      if (node.data?.nodeData) {
         nodeMap.set(node.id, {
           ...node.data.nodeData,
-          children: []
+          id: node.id,
+          children: [], // 确保初始化为空数组
         });
       }
     });
@@ -993,7 +822,7 @@ const MindMap: React.FC = () => {
     const childNodeIds = new Set<string>();
     
     // 根据边构建父子关系
-    edges.forEach(edge => {
+    edges.forEach((edge) => {
       const sourceNode = nodeMap.get(edge.source);
       const targetNode = nodeMap.get(edge.target);
       
@@ -1004,32 +833,28 @@ const MindMap: React.FC = () => {
         }
         
         // 将目标节点添加为源节点的子节点
-        if (sourceNode.children) {
-          sourceNode.children.push(targetNode);
-          childNodeIds.add(edge.target);
-        }
+        sourceNode.children = sourceNode.children || [];
+        sourceNode.children.push(targetNode);
+        childNodeIds.add(edge.target);
       }
     });
-    
-    // 找出所有根节点（没有父节点的节点）
-    const rootNodes: MindMapNode[] = [];
-    nodeMap.forEach((node, id) => {
-      if (!childNodeIds.has(id)) {
-        rootNodes.push(node);
-      }
-    });
-    
-    // 创建主题
+
+    // 找到根节点（没有父节点的节点）
+    const rootNodes = Array.from(nodeMap.values()).filter(
+      node => !childNodeIds.has(node.id)
+    );
+
+    // 创建主题对象
     const theme: MindMapTheme = {
-      id: 'theme-' + Date.now(),
+      id: 'root',
       title: '思维导图',
+      children: rootNodes,
       created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      children: rootNodes
     };
-    
-    mindMapData.mindMaps.push(theme);
-    return mindMapData;
+
+    return {
+      mindMaps: [theme]
+    };
   };
 
   // 处理保存
@@ -1059,7 +884,7 @@ const MindMap: React.FC = () => {
           created_at: nodeData.created_at || new Date().toISOString(),
           start_date: nodeData.start_date,
           due_date: nodeData.due_date,
-          children: [],
+          children: [], // 确保初始化为空数组
         });
       });
       
@@ -1069,9 +894,7 @@ const MindMap: React.FC = () => {
         const targetNode = nodeMap.get(edge.target);
         
         if (sourceNode && targetNode) {
-          if (!sourceNode.children) {
-            sourceNode.children = [];
-          }
+          // 不再需要检查 children 是否存在，因为已经初始化了
           sourceNode.children.push(targetNode);
           
           // 如果边有标签，添加到目标节点
@@ -1830,15 +1653,18 @@ const MindMap: React.FC = () => {
         
         // 递归处理节点及其子节点
         const processNode = (node: MindMapNode, parentId?: string, position = { x: 0, y: 0 }, level = 0) => {
+          // 确保节点有一个有效的 ID
+          const nodeId = node.id || `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          
           // 创建节点
           const newNode: FlowNode = {
-            id: node.id || `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // 确保ID唯一
+            id: nodeId,
             type: 'custom',
             position: position,
             data: {
               label: node.title,
               nodeData: {
-                id: node.id || `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                id: nodeId,
                 title: node.title || '',
                 description: node.description || '',
                 priority: node.priority,
@@ -1846,8 +1672,9 @@ const MindMap: React.FC = () => {
                 created_at: node.created_at || new Date().toISOString(),
                 start_date: node.start_date || currentDate,
                 due_date: node.due_date || currentDate,
+                children: [], // 确保初始化为空数组
               },
-              selected: false, // 确保节点未被选中状态
+              selected: false,
             },
           };
           
@@ -1856,9 +1683,9 @@ const MindMap: React.FC = () => {
           // 如果有父节点，创建边
           if (parentId) {
             const newEdge: Edge = {
-              id: `edge-${parentId}-${newNode.id}-${Date.now()}`, // 确保边ID唯一
+              id: `edge-${parentId}-${nodeId}-${Date.now()}`,
               source: parentId,
-              target: newNode.id,
+              target: nodeId,
               type: 'custom',
               data: { label: node.edgeLabel || '' },
               sourceHandle: 'right',
@@ -1868,37 +1695,43 @@ const MindMap: React.FC = () => {
           }
           
           // 处理子节点
-          if (node.children && node.children.length > 0) {
+          if (node.children && Array.isArray(node.children)) {
             node.children.forEach((child, index) => {
-              const childPosition = {
-                x: position.x + NODE_WIDTH * 1.5, // 子节点向右偏移
-                y: position.y + (index - node.children!.length / 2) * NODE_HEIGHT * 1.5, // 子节点垂直分布
-              };
-              processNode(child, newNode.id, childPosition, level + 1);
+              if (child) { // 确保子节点存在
+                const childPosition = {
+                  x: position.x + NODE_WIDTH * 1.5,
+                  y: position.y + (index - (node.children?.length || 0) / 2) * NODE_HEIGHT * 1.5,
+                };
+                processNode(child, nodeId, childPosition, level + 1);
+              }
             });
           }
+          
+          return nodeId;
         };
         
         // 处理所有主题
-        const theme = data.mindMaps[0]; // 只处理第一个主题
+        const theme = data.mindMaps[0];
         
         // 如果主题有子节点，直接处理子节点
-        if (theme.children && theme.children.length > 0) {
+        if (theme.children && Array.isArray(theme.children) && theme.children.length > 0) {
           // 计算初始位置，使节点居中
           const initialX = 100;
           const initialY = 100;
           
           theme.children.forEach((child, index) => {
-            const childPosition = {
-              x: initialX,
-              y: initialY + index * NODE_HEIGHT * 2, // 垂直排列根节点
-            };
-            processNode(child, undefined, childPosition);
+            if (child) { // 确保子节点存在
+              const childPosition = {
+                x: initialX,
+                y: initialY + index * NODE_HEIGHT * 2,
+              };
+              processNode(child, undefined, childPosition);
+            }
           });
         } else {
           // 如果主题没有子节点，创建一个主题节点
           const themeNode: FlowNode = {
-            id: theme.id || `theme-${Date.now()}`, // 确保ID唯一
+            id: theme.id || `theme-${Date.now()}`,
             type: 'custom',
             position: { x: 100, y: 100 },
             data: {
@@ -1906,52 +1739,35 @@ const MindMap: React.FC = () => {
               nodeData: {
                 id: theme.id || `theme-${Date.now()}`,
                 title: theme.title || '思维导图',
-                description: '', // 主题没有description属性，设置为空字符串
+                description: '',
                 created_at: theme.created_at || new Date().toISOString(),
                 start_date: currentDate,
                 due_date: currentDate,
+                children: [], // 确保初始化为空数组
               },
-              selected: false, // 确保节点未被选中状态
+              selected: false,
             },
           };
           
           newNodes.push(themeNode);
         }
         
-        // 使用 Promise 和 setTimeout 确保状态更新后再执行后续操作
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // 更新画布
+        setNodes(newNodes);
+        setEdges(newEdges);
         
-        // 使用函数式更新确保状态完全替换而不是合并
-        setNodes(() => [...newNodes]);
-        setEdges(() => [...newEdges]);
+        // 更新画布名称
+        setCurrentCanvasName(theme.title || '未命名画布');
+        setCurrentCanvasId(theme.id || 'default');
         
         // 添加到历史记录
         addToHistory(newNodes, newEdges);
         
-        // 延迟执行自动布局，确保节点已经渲染
-        setTimeout(() => {
-          // 确保 reactFlowInstance 已经初始化
-          if (reactFlowInstance) {
-            // 使用 fitView 确保所有节点都在视图中
-            reactFlowInstance.fitView({ padding: 0.2, duration: 800 });
-            
-            // 再次延迟执行自动布局，确保节点已经渲染
-            setTimeout(() => {
-              // 再次检查节点是否存在
-              if (newNodes.length > 0) {
-                handleAutoLayout();
-              }
-            }, 500);
-          }
-        }, 300);
-        
-        message.success('思维导图已加载');
-      } else {
-        message.error('加载失败：文件格式不正确或没有数据');
+        message.success('成功加载思维导图');
       }
     } catch (error) {
       console.error('加载思维导图时出错:', error);
-      message.error('加载失败：' + (error instanceof Error ? error.message : '未知错误'));
+      message.error('加载失败');
     }
   };
 
@@ -2615,45 +2431,36 @@ const MindMap: React.FC = () => {
                   icon={<FileOutlined />} 
                   onClick={async () => {
                     try {
-                      const mindMapData = getMindMapData();
+                      const mindMapData = getMindMapData(nodes, edges);
                       
                       // 检查是否在非 HTTPS 环境
-                      const isNotSecure = window.location.protocol !== 'https:' && window.location.hostname !== 'localhost';
-                      
-                      // 如果没有选择保存目录且环境支持，提示用户选择
-                      if (!saveDirectoryHandle && 'showDirectoryPicker' in window && !isNotSecure) {
-                        const shouldSelect = await new Promise<boolean>((resolve) => {
-                          Modal.confirm({
-                            title: '选择保存路径',
-                            content: '您尚未选择保存路径，是否现在选择？',
-                            okText: '选择',
-                            cancelText: '取消',
-                            onOk: () => resolve(true),
-                            onCancel: () => resolve(false),
-                          });
-                        });
-                        
-                        if (shouldSelect) {
-                          await selectSaveDirectory();
-                        }
+                      if (window.location.protocol !== 'https:' && !window.location.hostname.includes('localhost')) {
+                        message.warning('非 HTTPS 环境下无法使用文件系统功能，将使用下载方式保存');
+                        await saveToFile(mindMapData);
+                        return;
                       }
-                      
-                      const success = await saveToMarkdown(mindMapData, currentCanvasName, saveDirectoryHandle);
-                      
-                      if (success) {
-                        if (saveDirectoryHandle) {
-                          message.success(`Markdown文件已保存到 ${saveDirectoryPath} 目录`);
-                        } else if (isNotSecure) {
-                          message.success('成功导出为Markdown格式（使用传统下载方式）');
-                        } else {
-                          message.success('成功导出为Markdown格式');
+
+                      // 尝试使用文件系统 API
+                      if (isDirectoryPickerSupported()) {
+                        try {
+                          const dirHandle = await window.showDirectoryPicker();
+                          const fileHandle = await dirHandle.getFileHandle('mindmap.json', { create: true });
+                          const writable = await fileHandle.createWritable();
+                          await writable.write(JSON.stringify(mindMapData, null, 2));
+                          await writable.close();
+                          message.success('保存成功！');
+                        } catch (err) {
+                          console.error('文件系统 API 保存失败:', err);
+                          // 如果文件系统 API 失败，回退到下载方式
+                          await saveToFile(mindMapData);
                         }
                       } else {
-                        message.error('导出失败');
+                        // 如果不支持文件系统 API，使用下载方式
+                        await saveToFile(mindMapData);
                       }
                     } catch (error) {
-                      console.error('导出Markdown时出错:', error);
-                      message.error('导出失败');
+                      console.error('保存失败:', error);
+                      message.error('保存失败，请重试');
                     }
                   }}
                   disabled={isLocked}
