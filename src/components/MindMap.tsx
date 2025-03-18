@@ -1695,11 +1695,6 @@ const MindMap: React.FC = () => {
     
     setSelectedNode(newNode);
     
-    if (parentId) {
-      form.resetFields();
-      setIsModalVisible(true);
-    }
-    
     setContextMenu({ visible: false, x: 0, y: 0 });
   };
 
@@ -1766,16 +1761,8 @@ const MindMap: React.FC = () => {
   };
 
   const handleModalCancel = async () => {
-    // 如果是新创建的节点被取消，则删除该节点
-    if (newNodeRef.current) {
-      setNodes((nds) => nds.filter(node => node.id !== newNodeRef.current?.id));
-      // 同时删除与该节点相关的边
-      setEdges((eds) => eds.filter(edge => 
-        edge.source !== newNodeRef.current?.id && edge.target !== newNodeRef.current?.id
-      ));
-      newNodeRef.current = null;
-    } else if (selectedNode && autoSave) { // 只有在启用自动保存时才保存
-      // 如果是编辑现有节点，自动保存修改内容
+    // 如果启用了自动保存，则保存当前编辑内容
+    if (selectedNode && autoSave) {
       try {
         // 获取表单当前值，不进行验证
         const values = form.getFieldsValue();
@@ -2065,6 +2052,9 @@ const MindMap: React.FC = () => {
         
         // 记录保存时间
         localStorage.setItem('mindmap_last_saved', new Date().toISOString());
+
+        // 保存历史记录到 localStorage
+        localStorage.setItem('mindmap_history', JSON.stringify(canvasHistory));
       } catch (error) {
         console.error('自动缓存失败:', error);
       }
@@ -2112,7 +2102,7 @@ const MindMap: React.FC = () => {
       document.removeEventListener('keydown', handleKeyDown);
       clearInterval(autoSaveInterval);
     };
-  }, [nodes, edges, isLocked, currentCanvasId, currentCanvasName]);
+  }, [nodes, edges, isLocked, currentCanvasId, currentCanvasName, canvasHistory]);
 
   // 组件加载时检查是否有自动保存的内容
   useEffect(() => {
@@ -2120,6 +2110,7 @@ const MindMap: React.FC = () => {
       try {
         const savedContent = localStorage.getItem('mindmap_autosave');
         const lastSavedTime = localStorage.getItem('mindmap_last_saved');
+        const savedHistory = localStorage.getItem('mindmap_history');
 
         if (savedContent && lastSavedTime) {
           const { nodes: savedNodes, edges: savedEdges, canvasId, canvasName } = JSON.parse(savedContent);
@@ -2139,12 +2130,20 @@ const MindMap: React.FC = () => {
               setEdges(savedEdges);
               setCurrentCanvasId(canvasId);
               setCurrentCanvasName(canvasName);
+
+              // 恢复历史记录
+              if (savedHistory) {
+                const parsedHistory = JSON.parse(savedHistory);
+                setCanvasHistory(parsedHistory);
+              }
+
               message.success('已恢复自动保存的内容');
             },
             onCancel: () => {
               // 用户选择不恢复时，清除自动保存的内容
               localStorage.removeItem('mindmap_autosave');
               localStorage.removeItem('mindmap_last_saved');
+              localStorage.removeItem('mindmap_history');
             }
           });
         }
